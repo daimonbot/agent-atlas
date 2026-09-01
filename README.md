@@ -103,3 +103,16 @@ multipliers and are flagged `computed`. Sonnet 5's introductory window
   in-memory over what's on disk; durable retention would add a store later.
 - `list`/startup parse everything discovered once (~seconds); after that,
   incremental.
+
+## Docker
+
+Published to GHCR by CI on every push to `main` (and semver tags):
+
+```bash
+docker run --rm -p 4747:4747 \
+  -v "$HOME:/data/home:ro" -e AGENT_ATLAS_CLAUDE_ROOT=/data/home/.claude/projects \
+  ghcr.io/daimonbot/agent-atlas:latest
+```
+
+The image runs as user `node` (uid 1000), needs only a read-only mount of the
+home that contains the transcripts, and writes nothing.
