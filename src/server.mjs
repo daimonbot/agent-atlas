@@ -5,8 +5,8 @@
 import http from "node:http";
 import { URL } from "node:url";
 import * as claude from "./providers/claude.mjs";
-import { describe } from "./providers/claude.mjs";
-import { treeHTML, indexHTML } from "./render.mjs";
+import { describe, workspace } from "./providers/claude.mjs";
+import { treeHTML, indexHTML, subtreeTotals } from "./render.mjs";
 
 const LIVE_MS = 120_000;
 
@@ -22,6 +22,7 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
       rows = sessions.map(s => {
         const t = claude.buildTree(s.path, cache);   // incremental: only new bytes parsed
         const d = describe(t);
+        const tot = subtreeTotals(t).get(t).tot;
         return { id: s.id, project: s.project.replace(/^-/, ""), path: s.path,
           name: t.identity?.agentName || t.identity?.customTitle || "",
           title: d.title, subtitle: d.subtitle,
@@ -29,8 +30,9 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
           start: t.start, durationS: t.durationS,
           live: Date.now() - s.mtimeMs < LIVE_MS,
           agents: countAgents(t), apiCalls: t.apiCalls,
-          output: t.tokens.output, cacheRead: t.tokens.cacheRead,
-          cacheWrite: t.tokens.cacheWrite5m + t.tokens.cacheWrite1h,
+          model: t.model[0] || null,
+          workspace: workspace(t), version: t.version,
+          tokens: tot.t, tokenCost: tot.d,
           cost: t.cost.total };
       });
     } catch (e) { console.error("[scan]", e.message); }
@@ -59,7 +61,7 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
         if (m[1] === "api/tree") return json(t);
         return send(200, "text/html", treeHTML(t, {
           title: `${t.cost.total.toFixed(2)} · ${s.project.replace(/^-/, "")}`,
-          describe: describe(t),
+          describe: describe(t), workspace: workspace(t),
           live, backHref: "/" + tokenQS, refresh: live ? 10 : 0 }));
       }
       if (u.pathname === "/healthz") return send(200, "text/plain", "ok");

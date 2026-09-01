@@ -5,12 +5,12 @@ Provider-agnostic cost & agent-tree explorer for AI coding sessions.
 binds `127.0.0.1` by default.
 
 Reads the transcripts your agent harness already writes, builds a nested tree of
-every agent that ran (orchestrator → subagents → their subagents, any depth),
+every agent that ran (main → subagents → their subagents, any depth),
 prices every node from its own token usage, and rolls costs up:
 `total = own + Σ children.total`.
 
 ```
-orchestrator — (session root)                 opus-5 high 19.4h 251c  $323.17 (own $81.76 + sub $241.41)
+main — (session)                              opus-5 high 19.4h 251c  $323.17 (own $81.76 + sub $241.41)
 ├─ lib-researcher — Survey tracing options    opus-5 xhigh 12m 41c    $6.08 (own $3.80 + sub $2.28)
 │  ├─ general-purpose — Research Langfuse…    opus-5 xhigh 5m 19c     $1.07
 …
@@ -25,7 +25,8 @@ node src/cli.mjs export <id> --out tree.html            # standalone HTML, no se
 node src/cli.mjs serve [--host 127.0.0.1] [--port 4747] [--interval 10] [--token X]
 ```
 
-Web view: `/` session list · `/session/<id>` expandable tree ·
+Web view: `/` session list · `/session/<id>` agent table — both with stat
+tiles, sortable columns, searchable filters, and cost split per token class ·
 `/api/sessions`, `/api/tree/<id>` JSON. With `--token X` every request must
 carry `?t=X` (use it if you bind beyond localhost).
 
