@@ -22,9 +22,12 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
         const t = claude.buildTree(s.path, cache);   // incremental: only new bytes parsed
         return { id: s.id, project: s.project.replace(/^-/, ""), path: s.path,
           name: t.identity?.agentName || t.identity?.customTitle || "",
+          title: t.summary || t.identity?.customTitle || t.identity?.agentName || "",
+          desc: (t.firstPrompt || "").slice(0, 220),
           start: t.start, durationS: t.durationS,
           live: Date.now() - s.mtimeMs < LIVE_MS,
-          agents: countAgents(t), output: t.tokens.output, cost: t.cost.total };
+          agents: countAgents(t), apiCalls: t.apiCalls,
+          output: t.tokens.output, cost: t.cost.total };
       });
     } catch (e) { console.error("[scan]", e.message); }
   }

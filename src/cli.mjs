@@ -26,6 +26,8 @@ if (cmd === "list") {
   const cutoff = Date.now() - days * 864e5;
   const all = args.includes("--all");
   const cache = new Map();
+  const minCost = +opt("min-cost", 0);
+  const sortK = String(opt("sort", "time"));
   const rows = claude.discover()
     .filter(s => all || s.mtimeMs >= cutoff)
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
@@ -33,15 +35,18 @@ if (cmd === "list") {
       const t = claude.buildTree(s.path, cache);
       return { id: s.id, project: s.project.replace(/^-/, "").slice(0, 38),
         name: t.identity?.agentName || t.identity?.customTitle || "",
+        desc: (t.firstPrompt || "").slice(0, 70),
         start: t.start, durationS: t.durationS, live: Date.now() - s.mtimeMs < LIVE_MS,
         agents: countAgents(t), cost: t.cost.total };
-    });
+    })
+    .filter(r => r.cost >= minCost);
+  if (sortK === "cost") rows.sort((a, b) => b.cost - a.cost);
   if (args.includes("--json")) { console.log(JSON.stringify(rows, null, 1)); process.exit(0); }
   for (const r of rows)
     console.log([r.live ? "LIVE" : "    ", r.id.slice(0, 8),
       (r.start || "").slice(0, 16).replace("T", " "), fmtDur(r.durationS).padStart(6),
       String(r.agents).padStart(3) + " ag", ("$" + r.cost.toFixed(2)).padStart(9),
-      r.name || r.project].join("  "));
+      r.name || r.project, r.desc ? "· " + r.desc : ""].join("  "));
   const total = rows.reduce((a, r) => a + r.cost, 0);
   console.log(`\n${rows.length} sessions · total $${total.toFixed(2)} (last ${all ? "∞" : days + "d"})`);
 } else if (cmd === "tree" || cmd === "export") {

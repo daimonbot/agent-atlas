@@ -17,6 +17,8 @@ export class SessionFileParser {
     this.first = null; this.last = null;
     this.userMsgs = 0;
     this.toolUseIds = new Set();       // tool_use ids seen (spawn attachment)
+    this.firstPrompt = null;           // first real user prompt (session description)
+    this.summary = null;               // harness-written summary record, if any
     this.identity = {};                // agent-name / custom-title / agent-setting
     this.size = -1; this.mtimeMs = -1;
   }
@@ -31,6 +33,7 @@ export class SessionFileParser {
       this.models.clear(); this.efforts.clear();
       this.first = this.last = null; this.userMsgs = 0;
       this.toolUseIds.clear(); this.identity = {};
+      this.firstPrompt = null; this.summary = null;
     }
     const fd = fs.openSync(this.path, "r");
     try {
@@ -57,6 +60,7 @@ export class SessionFileParser {
       if (!this.last  || o.timestamp > this.last)  this.last  = o.timestamp;
     }
     if (o.effort) this.efforts.add(o.effort);
+    if (o.type === "summary" && o.summary) this.summary = o.summary;
     if (o.type === "agent-name")   this.identity.agentName   = o.agentName;
     if (o.type === "custom-title") this.identity.customTitle = o.customTitle;
     if (o.type === "agent-setting")this.identity.agentSetting= o.agentSetting;
@@ -64,8 +68,16 @@ export class SessionFileParser {
     if (m.model) this.models.add(m.model);
     const c = m.content;
     if (o.type === "user" && (typeof c === "string" ||
-        (Array.isArray(c) && c.some(b => b.type === "text") && !c.some(b => b.type === "tool_result"))))
+        (Array.isArray(c) && c.some(b => b.type === "text") && !c.some(b => b.type === "tool_result")))) {
       this.userMsgs++;
+      if (!this.firstPrompt) {
+        const txt = (typeof c === "string" ? c
+          : c.filter(b => b.type === "text").map(b => b.text).join(" ")).trim();
+        if (txt && !txt.startsWith("<") && !txt.startsWith("Base directory for this skill")
+            && !txt.startsWith("[Request interrupted"))
+          this.firstPrompt = txt.replace(/\s+/g, " ").slice(0, 500);
+      }
+    }
     if (Array.isArray(c))
       for (const b of c) if (b.type === "tool_use") this.toolUseIds.add(b.id);
     if (m.usage && m.id) {
@@ -96,6 +108,7 @@ export class SessionFileParser {
       start: this.first, end: this.last,
       durationS: this.first && this.last ? Math.round((new Date(this.last) - new Date(this.first)) / 1000) : null,
       apiCalls: this.seen.size, userMsgs: this.userMsgs,
+      firstPrompt: this.firstPrompt, summary: this.summary,
       tokens: t, costOwn: usd, costConfidence: unknown.size ? "partial" : confidence,
       unknownModels: [...unknown], identity: this.identity,
     };

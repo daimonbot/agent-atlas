@@ -116,7 +116,8 @@ export function buildTree(sessionPath, cache = new Map()) {
       agent, description, agentId, provider: extra.provider || name, via,
       ...(st ? { model: st.model, effort: st.effort, start: st.start, end: st.end,
                  durationS: st.durationS, apiCalls: st.apiCalls, userMsgs: st.userMsgs,
-                 tokens: st.tokens, identity: st.identity, unknownModels: st.unknownModels }
+                 tokens: st.tokens, identity: st.identity, unknownModels: st.unknownModels,
+                 firstPrompt: st.firstPrompt, summary: st.summary }
              : { model: [], effort: [], start: null, end: null, durationS: null,
                  apiCalls: 0, userMsgs: 0,
                  tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },

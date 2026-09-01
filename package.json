@@ -1,6 +1,6 @@
 {
   "name": "agent-atlas",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Provider-agnostic cost & agent-tree explorer for AI coding sessions. Zero dependencies.",
   "type": "module",
   "bin": { "agent-atlas": "./src/cli.mjs" },
