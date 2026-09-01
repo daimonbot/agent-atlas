@@ -47,17 +47,22 @@ td .cost{color:var(--gold);font-weight:700}
 .toolbar{display:flex;gap:.5em;margin:.6em 0}
 .toolbar button{background:var(--panel);color:var(--tx);border:1px solid var(--line);border-radius:5px;
  padding:.25em .7em;font:inherit;cursor:pointer} .toolbar button.on{border-color:var(--gold);color:var(--gold)}
-details{margin-left:1.15em;border-left:1px solid var(--line);padding-left:.75em}
-.leaf{margin-left:2.45em;border-left:1px solid #1c1c22;padding-left:.75em}
-summary{cursor:pointer;list-style:"▸ "} details[open]>summary{list-style:"▾ "}
-.row{display:flex;align-items:baseline;gap:.5em;padding:.1em .3em;border-radius:4px;
+details,.leaf{margin-left:1.1em;border-left:1px solid var(--line);padding-left:.7em}
+summary{cursor:pointer;list-style:none}
+.mk{display:inline-block;width:1.15em;flex:0 0 1.15em;color:var(--mut)}
+summary .mk::before{content:"▸"} details[open]>summary .mk::before{content:"▾"}
+.row{display:flex;align-items:baseline;gap:.45em;padding:.1em .3em;border-radius:4px;
  background:linear-gradient(90deg,rgba(126,200,255,.07) var(--w,0%),transparent var(--w,0%))}
-summary .row{display:inline-flex;width:calc(100% - 1.2em)}
+summary .row{width:100%}
+.cols{display:inline-flex;gap:.15em;flex:0 0 auto}
+.cols span{display:inline-block;min-width:4.1em;text-align:right;color:var(--mut);font-size:11px}
+.c{min-width:5em;text-align:right}
 .a{color:var(--blue);font-weight:bold;white-space:nowrap}
 .d{color:#c9c9d2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:6em}
 .chip{color:var(--dim);font-size:11px;white-space:nowrap}
 .meta{color:var(--dim);font-size:11px;white-space:nowrap}
-.c{color:var(--gold);font-weight:700;white-space:nowrap;margin-left:auto}
+.c{color:var(--gold);font-weight:700;white-space:nowrap}
+.d{margin-right:auto}
 .share{color:var(--dim);font-size:11px}
 .split{color:var(--mut);font-weight:normal;font-size:11px}`;
 
@@ -67,14 +72,14 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   const tr = rows.map(r => {
     const title = r.title || r.name || "";
     return `<tr data-cost="${r.cost}" data-start="${esc(r.start || "")}" data-dur="${r.durationS ?? 0}"
- data-agents="${r.agents}" data-calls="${r.apiCalls ?? 0}" data-out="${r.output}" data-live="${r.live ? 1 : 0}"
+ data-agents="${r.agents}" data-calls="${r.apiCalls ?? 0}" data-out="${r.output}" data-cr="${r.cacheRead ?? 0}" data-cw="${r.cacheWrite ?? 0}" data-live="${r.live ? 1 : 0}"
  data-project="${esc(r.project)}" data-text="${esc(((title + " " + (r.subtitle || "") + " " + (r.desc || "") + " " + r.project + " " + r.id)).toLowerCase())}">
 <td>${r.live ? '<span class="badge live">LIVE</span>' : ""}<a href="/session/${esc(r.id)}${tokenQS}">${esc(r.id.slice(0, 8))}</a></td>
 <td class=task title="${esc(r.desc || "")}">${title ? `<div class=title>${esc(title)}</div>` : ""}${r.subtitle ? `<div class=desc>${esc(r.subtitle)}</div>` : (r.desc ? `<div class=desc>${esc(r.desc)}</div>` : "")}</td>
 <td class=muted>${esc(r.project)}</td>
 <td class=dim>${esc((r.start || "").slice(0, 16).replace("T", " "))}</td>
 <td class=r>${fmtDur(r.durationS)}</td><td class=r>${r.agents}</td><td class=r>${num(r.apiCalls)}</td>
-<td class=r>${num(r.output)}</td><td class=r><span class=cost>${usd(r.cost)}</span></td></tr>`;
+<td class=r>${num(r.output)}</td><td class="r muted">${kTok(r.cacheRead ?? 0)}</td><td class=r>${kTok(r.cacheWrite ?? 0)}</td><td class=r><span class=cost>${usd(r.cost)}</span></td></tr>`;
   }).join("\n");
   return `<!doctype html><meta charset=utf-8><title>agent-atlas</title>
 <meta http-equiv=refresh content=60><style>${CSS}</style>
@@ -91,7 +96,9 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
 <th>tarea</th><th data-k=project data-t=s>proyecto <span class=arr></span></th>
 <th data-k=start data-t=s>inicio <span class=arr></span></th><th class=r data-k=dur>dur <span class=arr></span></th>
 <th class=r data-k=agents>agentes <span class=arr></span></th><th class=r data-k=calls>calls <span class=arr></span></th>
-<th class=r data-k=out>tokens out <span class=arr></span></th><th class=r data-k=cost>coste <span class=arr></span></th>
+<th class=r data-k=out>tokens out <span class=arr></span></th>
+<th class=r data-k=cr>cache R <span class=arr></span></th><th class=r data-k=cw>cache W <span class=arr></span></th>
+<th class=r data-k=cost>coste <span class=arr></span></th>
 </tr></thead><tbody>${tr}</tbody></table>
 <script>
 (function(){
@@ -143,10 +150,11 @@ export function treeHTML(tree, opts = {}) {
     const pr = n.phase != null ? `<span class=chip>[${esc(n.phase)}${n.round != null ? "/r" + esc(n.round) : ""}]</span>` : "";
     const tip = esc((n.firstPrompt || "").slice(0, 300)) +
       ` — in ${num(n.tokens.input)} · out ${num(n.tokens.output)} · cacheR ${num(n.tokens.cacheRead)} · cacheW ${num(n.tokens.cacheWrite5m + n.tokens.cacheWrite1h)}`;
-    return `<span class=row style="--w:${share}%" title="${tip}">${badges}<span class=a>${esc(n.agent)}</span>` +
+    return `<span class=row style="--w:${share}%" title="${tip}"><span class=mk></span>${badges}<span class=a>${esc(n.agent)}</span>` +
       `<span class=d>${esc(n.description ?? "")}</span>${pr}` +
       ((n.skills && n.skills.length) ? `<span class=chip>⚙ ${esc(n.skills.slice(0,3).join("→"))}${n.skills.length>3?"…":""}</span>` : "") +
-      `<span class=meta>${esc(shortModel(n.model))} · ${esc(n.effort.join(","))} · ${fmtDur(n.durationS)} · ${n.apiCalls}c · out ${kTok(n.tokens.output)}</span>` +
+      `<span class=meta>${esc(shortModel(n.model))} · ${esc(n.effort.join(","))} · ${fmtDur(n.durationS)} · ${n.apiCalls}c</span>` +
+      `<span class=cols><span>${kTok(n.tokens.output)}</span><span>${kTok(n.tokens.cacheRead)}</span><span>${kTok(n.tokens.cacheWrite5m + n.tokens.cacheWrite1h)}</span></span>` +
       `<span class=c>${usd(n.cost.total)}${conf}` +
       (parentTotal > 0 ? ` <span class=share>${share}%</span>` : "") +
       (n.children.length ? ` <span class=split>(propio ${usd(n.cost.own)} + hijos ${usd(n.cost.children)})</span>` : "") + `</span>`;
@@ -185,7 +193,7 @@ ${backHref ? `<p><a href="${esc(backHref)}">← sesiones</a></p>` : ""}
  <button id=exp>expandir todo</button><button id=col>plegar todo</button>
  <span class=dim style="align-self:center">· ordenar hijos:</span>
  <button id=sstart class=on>inicio</button><button id=scost>coste</button>
-</div>
+ <span class=dim style="margin-left:auto;align-self:center">columnas: tokens out · cache read · cache write · coste</span></div>
 <div id=tree>${render(t, true, 0)}</div>
 <script>
 (function(){
@@ -216,7 +224,7 @@ export function treeTerminal(tree, width = process.stdout.columns || 120) {
     const cost = usd(n.cost.total) +
       (n.children.length ? ` (own ${usd(n.cost.own)} + sub ${usd(n.cost.children)})` : "") +
       (n.cost.confidence === "computed" ? " ±" : n.cost.confidence === "reported" ? " (reported)" : "");
-    const meta = `${shortModel(n.model)} ${n.effort.join(",")} ${fmtDur(n.durationS)} ${n.apiCalls}c`;
+    const meta = `${shortModel(n.model)} ${n.effort.join(",")} ${fmtDur(n.durationS)} ${n.apiCalls}c out ${kTok(n.tokens.output)} cR ${kTok(n.tokens.cacheRead)} cW ${kTok(n.tokens.cacheWrite5m + n.tokens.cacheWrite1h)}`;
     let head = `${prefix}${badge}${n.agent} — ${n.description ?? ""}`;
     const tail = `  ${meta}  ${cost}`;
     const room = width - tail.length - 1;

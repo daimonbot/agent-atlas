@@ -29,7 +29,9 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
           start: t.start, durationS: t.durationS,
           live: Date.now() - s.mtimeMs < LIVE_MS,
           agents: countAgents(t), apiCalls: t.apiCalls,
-          output: t.tokens.output, cost: t.cost.total };
+          output: t.tokens.output, cacheRead: t.tokens.cacheRead,
+          cacheWrite: t.tokens.cacheWrite5m + t.tokens.cacheWrite1h,
+          cost: t.cost.total };
       });
     } catch (e) { console.error("[scan]", e.message); }
   }
