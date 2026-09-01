@@ -133,7 +133,7 @@ export function buildTree(sessionPath, cache = new Map()) {
   }
 
   const base = path.basename(sessionPath, ".jsonl");
-  const t = node("orchestrator", "(session root)", base, sessionPath, "root");
+  const t = node("main", "(sesión)", base, sessionPath, "root");
   if (t.identity?.agentName) t.agent = t.identity.agentName;
   else if (t.identity?.customTitle) t.agent = t.identity.customTitle;
   return t;

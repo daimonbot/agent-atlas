@@ -171,7 +171,7 @@ ${backHref ? `<p><a href="${esc(backHref)}">← sesiones</a></p>` : ""}
  ${t.firstPrompt ? `<div class=desc style="margin-top:.3em">${esc(t.firstPrompt)}</div>` : ""}
  <div class=stats>
   <span class="stat big"><b>${usd(t.cost.total)}</b><span>coste total</span></span>
-  <span class=stat><b>${usd(t.cost.own)}</b><span>orquestador</span></span>
+  <span class=stat><b>${usd(t.cost.own)}</b><span>main (propio)</span></span>
   <span class=stat><b>${usd(t.cost.children)}</b><span>agentes (${nAgents})</span></span>
   <span class=stat><b>${num(tk.output)}</b><span>tokens out</span></span>
   <span class=stat><b>${kTok(tk.cacheRead)}</b><span>cache read</span></span>
