@@ -15,11 +15,16 @@ const CLAUDE = {
 const SONNET_INTRO = [2, 10, 0.20, 2.50, 4];
 
 // usage: {in, out, cr, c5, c1h}  ts: ISO timestamp of the message
+// "parts" splits the same cost per token class (cache write folds 5m and 1h
+// together, as every view does); their sum equals usd up to float rounding.
+export const ZERO_PARTS = () => ({ in: 0, out: 0, cr: 0, cw: 0 });
 export function priceClaude(model, ts, u) {
   const row = CLAUDE[model];
-  if (!row) return { usd: 0, confidence: "n/a", unknownModel: model };
+  if (!row) return { usd: 0, parts: ZERO_PARTS(), confidence: "n/a", unknownModel: model };
   let p = row.p;
   if (model === "claude-sonnet-5" && ts && ts < "2026-09-01") p = SONNET_INTRO;
   const usd = (u.in * p[0] + u.out * p[1] + u.cr * p[2] + u.c5 * p[3] + u.c1h * p[4]) / 1e6;
-  return { usd, confidence: row.confidence };
+  const parts = { in: u.in * p[0] / 1e6, out: u.out * p[1] / 1e6, cr: u.cr * p[2] / 1e6,
+                  cw: (u.c5 * p[3] + u.c1h * p[4]) / 1e6 };
+  return { usd, parts, confidence: row.confidence };
 }

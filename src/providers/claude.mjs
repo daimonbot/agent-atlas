@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { SessionFileParser } from "../parse.mjs";
+import { ZERO_PARTS } from "../prices.mjs";
 
 export const name = "claude";
 export const root = () =>
@@ -101,7 +102,7 @@ export function buildTree(sessionPath, cache = new Map()) {
       durationS: l.startedAt && l.endedAt ? Math.round((new Date(l.endedAt) - new Date(l.startedAt)) / 1000) : null,
       apiCalls: 0, userMsgs: 0,
       tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
-      costOwn: l.reported?.costUsd ?? l.costUsd ?? 0,
+      costOwn: l.reported?.costUsd ?? l.costUsd ?? 0, costParts: ZERO_PARTS(),
       costConfidence: (l.reported?.costUsd ?? l.costUsd) != null ? "reported" : "n/a",
       unknownModels: [], identity: {},
     }, [], { ...extra, provider: l.provider || "claude" });
@@ -116,13 +117,17 @@ export function buildTree(sessionPath, cache = new Map()) {
       agent, description, agentId, provider: extra.provider || name, via,
       ...(st ? { model: st.model, effort: st.effort, start: st.start, end: st.end,
                  durationS: st.durationS, apiCalls: st.apiCalls, userMsgs: st.userMsgs,
-                 tokens: st.tokens, identity: st.identity, unknownModels: st.unknownModels,
+                 tokens: st.tokens, costParts: st.costParts,
+                 identity: st.identity, unknownModels: st.unknownModels,
                  firstPrompt: st.firstPrompt, summary: st.summary,
-                 skills: st.skills, branch: st.branch }
+                 skills: st.skills, branch: st.branch,
+                 cwd: st.cwd, version: st.version, repo: st.repo }
              : { model: [], effort: [], start: null, end: null, durationS: null,
                  apiCalls: 0, userMsgs: 0,
                  tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
-                 identity: {}, unknownModels: [], skills: [], branch: null }),
+                 costParts: ZERO_PARTS(),
+                 identity: {}, unknownModels: [], skills: [], branch: null,
+                 cwd: null, version: null, repo: null }),
       ...("phase" in extra && extra.phase !== undefined ? { phase: extra.phase } : {}),
       ...("round" in extra && extra.round !== undefined ? { round: extra.round } : {}),
       ...(extra.reported ? { reported: extra.reported } : {}),
@@ -133,10 +138,49 @@ export function buildTree(sessionPath, cache = new Map()) {
   }
 
   const base = path.basename(sessionPath, ".jsonl");
-  const t = node("main", "(sesión)", base, sessionPath, "root");
+  const t = node("main", "(session)", base, sessionPath, "root");
   if (t.identity?.agentName) t.agent = t.identity.agentName;
   else if (t.identity?.customTitle) t.agent = t.identity.customTitle;
   return t;
+}
+
+// Paseo checks work out into ~/.paseo/worktrees/<id>/<name>, where the path says
+// nothing about which repository it is a worktree of.
+const PASEO_WORKTREE = /\/\.paseo\/worktrees\//;
+const GH = /github\.com\/([\w.-]+)\/([\w.-]+)/;
+
+/**
+ * Where a session ran, named the way a human would name it.
+ *
+ * The transcript never records a git remote, so the repository is only knowable
+ * when the harness logged a PR it opened (`pr-link`) or when the opening prompt
+ * cites a GitHub URL. The working directory is the reliable signal and is
+ * preferred whenever it carries the project itself; the repository is the
+ * fallback for worktree paths, which do not.
+ */
+export function workspace(t) {
+  const cwd = t.cwd || "";
+  const fromPR = t.repo?.repo || null;
+  const m = (t.firstPrompt || "").match(GH);
+  const repo = fromPR || (m ? m[1] + "/" + m[2].replace(/\.git$/, "") : null);
+  let label = "", source = null;
+  if (cwd.startsWith("/workspace/")) { label = cwd.slice(11); source = "cwd"; }
+  else if (PASEO_WORKTREE.test(cwd) && repo) { label = repo; source = fromPR ? "pr" : "prompt"; }
+  else if (cwd) {
+    // a bare leaf name is often meaningless (/tmp/launcher-study/fan -> "fan"),
+    // so keep the parent too — unless it is an opaque worktree id
+    const parts = cwd.split("/").filter(Boolean);
+    const parent = parts[parts.length - 2] || "";
+    label = PASEO_WORKTREE.test(cwd) || !parent ? parts[parts.length - 1]
+          : parent + "/" + parts[parts.length - 1];
+    source = "dir";
+  }
+  const branch = t.branch || null;
+  // Only linkable when the repository is known at all. Whether the branch still
+  // exists on the remote is unknowable from here — checking would mean a network
+  // call, and this tool deliberately makes none.
+  const branchUrl = repo && branch ? `https://github.com/${repo}/tree/${encodeURIComponent(branch)}` : null;
+  return { label, source, cwd, repo, branch, branchUrl };
 }
 
 /** Human title + subtitle for a session tree. No external sources: transcript only. */
