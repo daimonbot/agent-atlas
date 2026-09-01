@@ -5,6 +5,7 @@
 import http from "node:http";
 import { URL } from "node:url";
 import * as claude from "./providers/claude.mjs";
+import { describe } from "./providers/claude.mjs";
 import { treeHTML, indexHTML } from "./render.mjs";
 
 const LIVE_MS = 120_000;
@@ -20,9 +21,10 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
       sessions = claude.discover().sort((a, b) => b.mtimeMs - a.mtimeMs);
       rows = sessions.map(s => {
         const t = claude.buildTree(s.path, cache);   // incremental: only new bytes parsed
+        const d = describe(t);
         return { id: s.id, project: s.project.replace(/^-/, ""), path: s.path,
           name: t.identity?.agentName || t.identity?.customTitle || "",
-          title: t.summary || t.identity?.customTitle || t.identity?.agentName || "",
+          title: d.title, subtitle: d.subtitle,
           desc: (t.firstPrompt || "").slice(0, 220),
           start: t.start, durationS: t.durationS,
           live: Date.now() - s.mtimeMs < LIVE_MS,
@@ -54,7 +56,8 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
         const live = Date.now() - s.mtimeMs < LIVE_MS;
         if (m[1] === "api/tree") return json(t);
         return send(200, "text/html", treeHTML(t, {
-          title: `${t.agent} · $${t.cost.total.toFixed(2)} · ${s.project.replace(/^-/, "")}`,
+          title: `${t.cost.total.toFixed(2)} · ${s.project.replace(/^-/, "")}`,
+          describe: describe(t),
           live, backHref: "/" + tokenQS, refresh: live ? 10 : 0 }));
       }
       if (u.pathname === "/healthz") return send(200, "text/plain", "ok");

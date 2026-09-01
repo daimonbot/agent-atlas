@@ -117,11 +117,12 @@ export function buildTree(sessionPath, cache = new Map()) {
       ...(st ? { model: st.model, effort: st.effort, start: st.start, end: st.end,
                  durationS: st.durationS, apiCalls: st.apiCalls, userMsgs: st.userMsgs,
                  tokens: st.tokens, identity: st.identity, unknownModels: st.unknownModels,
-                 firstPrompt: st.firstPrompt, summary: st.summary }
+                 firstPrompt: st.firstPrompt, summary: st.summary,
+                 skills: st.skills, branch: st.branch }
              : { model: [], effort: [], start: null, end: null, durationS: null,
                  apiCalls: 0, userMsgs: 0,
                  tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
-                 identity: {}, unknownModels: [] }),
+                 identity: {}, unknownModels: [], skills: [], branch: null }),
       ...("phase" in extra && extra.phase !== undefined ? { phase: extra.phase } : {}),
       ...("round" in extra && extra.round !== undefined ? { round: extra.round } : {}),
       ...(extra.reported ? { reported: extra.reported } : {}),
@@ -136,4 +137,18 @@ export function buildTree(sessionPath, cache = new Map()) {
   if (t.identity?.agentName) t.agent = t.identity.agentName;
   else if (t.identity?.customTitle) t.agent = t.identity.customTitle;
   return t;
+}
+
+/** Human title + subtitle for a session tree. No external sources: transcript only. */
+export function describe(t) {
+  let title = null;
+  const m = (t.firstPrompt || "").match(
+    /github\.com\/([\w.-]+)\/([\w.-]+)\/(?:issues|pull)\/(\d+)\s*[—–-]*\s*(.*)/);
+  if (m) { const it = m[4].split(/\s+ORIGEN:/)[0].replace(/["`]+/g, "").trim();
+    title = (m[2] + "#" + m[3] + (it ? " — " + it : "")).slice(0, 110); }
+  title = title || t.summary || t.identity?.customTitle || t.identity?.agentName || null;
+  if (!title && t.firstPrompt) title = t.firstPrompt.slice(0, 90);
+  const subtitle = [ (t.skills || []).slice(0, 6).join(" → "), t.branch ]
+    .filter(Boolean).join(" · ");
+  return { title: title || "", subtitle };
 }

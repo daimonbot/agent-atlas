@@ -2,6 +2,7 @@
 // agent-atlas CLI. Commands: list, tree, export, serve.
 import fs from "node:fs";
 import * as claude from "./providers/claude.mjs";
+import { describe } from "./providers/claude.mjs";
 import { treeHTML, treeTerminal, fmtDur } from "./render.mjs";
 
 const args = process.argv.slice(2);
@@ -34,8 +35,8 @@ if (cmd === "list") {
     .map(s => {
       const t = claude.buildTree(s.path, cache);
       return { id: s.id, project: s.project.replace(/^-/, "").slice(0, 38),
-        name: t.identity?.agentName || t.identity?.customTitle || "",
-        desc: (t.firstPrompt || "").slice(0, 70),
+        name: describe(t).title || t.identity?.agentName || "",
+        desc: describe(t).subtitle.slice(0, 60),
         start: t.start, durationS: t.durationS, live: Date.now() - s.mtimeMs < LIVE_MS,
         agents: countAgents(t), cost: t.cost.total };
     })

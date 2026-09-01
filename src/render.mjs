@@ -68,9 +68,9 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
     const title = r.title || r.name || "";
     return `<tr data-cost="${r.cost}" data-start="${esc(r.start || "")}" data-dur="${r.durationS ?? 0}"
  data-agents="${r.agents}" data-calls="${r.apiCalls ?? 0}" data-out="${r.output}" data-live="${r.live ? 1 : 0}"
- data-project="${esc(r.project)}" data-text="${esc(((title + " " + (r.desc || "") + " " + r.project + " " + r.id)).toLowerCase())}">
+ data-project="${esc(r.project)}" data-text="${esc(((title + " " + (r.subtitle || "") + " " + (r.desc || "") + " " + r.project + " " + r.id)).toLowerCase())}">
 <td>${r.live ? '<span class="badge live">LIVE</span>' : ""}<a href="/session/${esc(r.id)}${tokenQS}">${esc(r.id.slice(0, 8))}</a></td>
-<td class=task>${title ? `<div class=title>${esc(title)}</div>` : ""}<div class=desc title="${esc(r.desc || "")}">${esc(r.desc || "")}</div></td>
+<td class=task title="${esc(r.desc || "")}">${title ? `<div class=title>${esc(title)}</div>` : ""}${r.subtitle ? `<div class=desc>${esc(r.subtitle)}</div>` : (r.desc ? `<div class=desc>${esc(r.desc)}</div>` : "")}</td>
 <td class=muted>${esc(r.project)}</td>
 <td class=dim>${esc((r.start || "").slice(0, 16).replace("T", " "))}</td>
 <td class=r>${fmtDur(r.durationS)}</td><td class=r>${r.agents}</td><td class=r>${num(r.apiCalls)}</td>
@@ -87,11 +87,11 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   <span id=stats></span>
 </div>
 <table id=t><thead><tr>
-<th data-k=start data-t=s>sesión <span class=arr></span></th>
-<th>tarea</th><th data-k=project data-t=s>proyecto</th>
-<th data-k=start data-t=s>inicio</th><th class=r data-k=dur>dur</th>
-<th class=r data-k=agents>agentes</th><th class=r data-k=calls>calls</th>
-<th class=r data-k=out>tokens out</th><th class=r data-k=cost>coste</th>
+<th>sesión</th>
+<th>tarea</th><th data-k=project data-t=s>proyecto <span class=arr></span></th>
+<th data-k=start data-t=s>inicio <span class=arr></span></th><th class=r data-k=dur>dur <span class=arr></span></th>
+<th class=r data-k=agents>agentes <span class=arr></span></th><th class=r data-k=calls>calls <span class=arr></span></th>
+<th class=r data-k=out>tokens out <span class=arr></span></th><th class=r data-k=cost>coste <span class=arr></span></th>
 </tr></thead><tbody>${tr}</tbody></table>
 <script>
 (function(){
@@ -133,7 +133,8 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
 }
 
 // ----------------------------------------------------------------- tree page
-export function treeHTML(tree, { title = "", live = false, backHref = null, refresh = 0 } = {}) {
+export function treeHTML(tree, opts = {}) {
+  const { title = "", live = false, backHref = null, refresh = 0 } = opts;
   function nodeRow(n, parentTotal) {
     const share = parentTotal > 0 ? Math.round(n.cost.total / parentTotal * 100) : 0;
     const badges = (n.via === "cli" ? `<span class="badge cli">CLI${n.provider !== "claude" ? ":" + esc(n.provider) : ""}</span>` : "");
@@ -144,6 +145,7 @@ export function treeHTML(tree, { title = "", live = false, backHref = null, refr
       ` — in ${num(n.tokens.input)} · out ${num(n.tokens.output)} · cacheR ${num(n.tokens.cacheRead)} · cacheW ${num(n.tokens.cacheWrite5m + n.tokens.cacheWrite1h)}`;
     return `<span class=row style="--w:${share}%" title="${tip}">${badges}<span class=a>${esc(n.agent)}</span>` +
       `<span class=d>${esc(n.description ?? "")}</span>${pr}` +
+      ((n.skills && n.skills.length) ? `<span class=chip>⚙ ${esc(n.skills.slice(0,3).join("→"))}${n.skills.length>3?"…":""}</span>` : "") +
       `<span class=meta>${esc(shortModel(n.model))} · ${esc(n.effort.join(","))} · ${fmtDur(n.durationS)} · ${n.apiCalls}c · out ${kTok(n.tokens.output)}</span>` +
       `<span class=c>${usd(n.cost.total)}${conf}` +
       (parentTotal > 0 ? ` <span class=share>${share}%</span>` : "") +
@@ -157,12 +159,15 @@ export function treeHTML(tree, { title = "", live = false, backHref = null, refr
   }
   const t = tree, tk = t.tokens;
   const nAgents = (function cnt(n) { return n.children.reduce((a, c) => a + 1 + cnt(c), 0); })(t);
-  const sesTitle = t.summary || t.identity?.customTitle || t.identity?.agentName || t.agent;
+  const d = opts.describe || null;
+  const sesTitle = (d && d.title) || t.summary || t.identity?.customTitle || t.identity?.agentName || t.agent;
+  const sesSub = d ? d.subtitle : "";
   return `<!doctype html><meta charset=utf-8><title>${esc(title || sesTitle)}</title>
 ${refresh ? `<meta http-equiv=refresh content=${refresh}>` : ""}<style>${CSS}</style>
 ${backHref ? `<p><a href="${esc(backHref)}">← sesiones</a></p>` : ""}
 <div class=head>
  <div class=title>${live ? '<span class="badge live">LIVE</span>' : ""}${esc(sesTitle)} <span class=dim>· ${esc(t.agentId || "")}</span></div>
+ ${sesSub ? `<div class=desc style="margin-top:.2em;color:var(--gold)">${esc(sesSub)}</div>` : ""}
  ${t.firstPrompt ? `<div class=desc style="margin-top:.3em">${esc(t.firstPrompt)}</div>` : ""}
  <div class=stats>
   <span class="stat big"><b>${usd(t.cost.total)}</b><span>coste total</span></span>

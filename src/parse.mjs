@@ -19,6 +19,8 @@ export class SessionFileParser {
     this.toolUseIds = new Set();       // tool_use ids seen (spawn attachment)
     this.firstPrompt = null;           // first real user prompt (session description)
     this.summary = null;               // harness-written summary record, if any
+    this.skills = [];                  // skills invoked, in first-seen order
+    this.branches = new Set();         // git branches seen (minus HEAD)
     this.identity = {};                // agent-name / custom-title / agent-setting
     this.size = -1; this.mtimeMs = -1;
   }
@@ -34,6 +36,7 @@ export class SessionFileParser {
       this.first = this.last = null; this.userMsgs = 0;
       this.toolUseIds.clear(); this.identity = {};
       this.firstPrompt = null; this.summary = null;
+      this.skills = []; this.branches = new Set();
     }
     const fd = fs.openSync(this.path, "r");
     try {
@@ -61,6 +64,7 @@ export class SessionFileParser {
     }
     if (o.effort) this.efforts.add(o.effort);
     if (o.type === "summary" && o.summary) this.summary = o.summary;
+    if (o.gitBranch && o.gitBranch !== "HEAD") this.branches.add(o.gitBranch);
     if (o.type === "agent-name")   this.identity.agentName   = o.agentName;
     if (o.type === "custom-title") this.identity.customTitle = o.customTitle;
     if (o.type === "agent-setting")this.identity.agentSetting= o.agentSetting;
@@ -77,9 +81,15 @@ export class SessionFileParser {
             && !txt.startsWith("[Request interrupted"))
           this.firstPrompt = txt.replace(/\s+/g, " ").slice(0, 500);
       }
+      const t0 = (typeof c === "string" ? c : c.filter(b => b.type === "text").map(b => b.text).join(" ")).trim();
+      if (t0.startsWith("Base directory for this skill: "))
+        this.#skill(t0.split("\n")[0].split("/").pop());
     }
     if (Array.isArray(c))
-      for (const b of c) if (b.type === "tool_use") this.toolUseIds.add(b.id);
+      for (const b of c) if (b.type === "tool_use") {
+        this.toolUseIds.add(b.id);
+        if (b.name === "Skill" && b.input?.skill) this.#skill(b.input.skill);
+      }
     if (m.usage && m.id) {
       const u0 = m.usage;
       const u = { in: u0.input_tokens || 0, out: u0.output_tokens || 0,
@@ -91,6 +101,8 @@ export class SessionFileParser {
       if (!prev || tot > prev.tot) this.seen.set(m.id, { tot, u, model: m.model, ts: o.timestamp });
     }
   }
+
+  #skill(name) { if (name && !this.skills.includes(name)) this.skills.push(name); }
 
   aggregates() {
     const t = { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
@@ -109,6 +121,7 @@ export class SessionFileParser {
       durationS: this.first && this.last ? Math.round((new Date(this.last) - new Date(this.first)) / 1000) : null,
       apiCalls: this.seen.size, userMsgs: this.userMsgs,
       firstPrompt: this.firstPrompt, summary: this.summary,
+      skills: [...this.skills], branch: [...this.branches][0] || null,
       tokens: t, costOwn: usd, costConfidence: unknown.size ? "partial" : confidence,
       unknownModels: [...unknown], identity: this.identity,
     };
