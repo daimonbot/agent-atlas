@@ -6,7 +6,7 @@ import http from "node:http";
 import { URL } from "node:url";
 import * as claude from "./providers/claude.mjs";
 import { describe, workspace } from "./providers/claude.mjs";
-import { treeHTML, indexHTML, subtreeTotals } from "./render.mjs";
+import { treeHTML, indexHTML, subtreeTotals, agentMs, perAgent } from "./render.mjs";
 
 const LIVE_MS = 120_000;
 
@@ -29,7 +29,8 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
           desc: (t.firstPrompt || "").slice(0, 220),
           start: t.start, durationS: t.durationS,
           live: Date.now() - s.mtimeMs < LIVE_MS,
-          agents: countAgents(t), apiCalls: t.apiCalls,
+          agents: countAgents(t), apiCalls: t.apiCalls, agentMs: agentMs(t),
+          byAgent: perAgent(t),
           model: t.model[0] || null,
           workspace: workspace(t), version: t.version,
           tokens: tot.t, tokenCost: tot.d,

@@ -18,6 +18,88 @@ const combo = (id, placeholder, opts, width = "15em") =>
     return `<div class=copt data-v="${esc(v)}">${esc(l)}</div>`; }).join("") +
   `</div></div>`;
 
+// Paints a breakdown panel. Callers supply rows as {k, c, v, d[4], root} and
+// the labels; on the cost metric the bar carries its own composition, in the
+// fixed hue order, and a long tail of small rows folds into "other".
+const BD_JS = `
+ var TOKL=['IN','OUT','CR','CW'];
+ function bdPaint(el,rows,fmt,split,head,bdAll,fold){
+  var tot=rows.reduce(function(a,r){return a+r.v;},0)||1, tail=[];
+  if(fold&&!bdAll&&rows.length>6){
+   tail=rows.filter(function(r){return r.v/tot<0.002;});
+   if(tail.length>1){
+    rows=rows.filter(function(r){return tail.indexOf(r)<0;});
+    var o={k:'other ('+tail.length+')',c:tail.reduce(function(a,r){return a+r.c;},0),
+           v:tail.reduce(function(a,r){return a+r.v;},0),d:[0,0,0,0],other:true};
+    tail.forEach(function(r){ for(var j=0;j<4;j++)o.d[j]+=r.d[j]; });
+    rows.push(o);
+   } else tail=[];
+  }
+  var max=rows.reduce(function(a,r){return Math.max(a,r.v);},1);
+  var body=rows.map(function(r){
+   var inner;
+   if(split&&r.v>0){
+    inner=TOKL.map(function(l,i){
+     return r.d[i]>0?'<i style="width:'+(r.d[i]/r.v*100).toFixed(2)+
+      '%;background:var(--s'+(i+1)+')" title="'+l+'"></i>':''; }).join('');
+   } else inner='<i style="width:100%"></i>';
+   return '<div class="bd-row'+(r.root?' is-main':'')+(r.other?' is-other':'')+'"'+
+    ' data-k="'+r.k.replace(/["&<>]/g,'')+'" data-c="'+r.c+'" data-v="'+r.v+'"'+
+    ' data-vf="'+fmt(r.v)+'" data-p="'+(r.v/tot*100).toFixed(1)+'"'+
+    ' data-d="'+r.d.join(',')+'">'+
+    '<span class=bd-name>'+r.k.replace(/[&<>]/g,'')+(r.c>1?'<i>×'+r.c+'</i>':'')+'</span>'+
+    '<span class="bd-bar'+(split?' split':'')+'" style="--w:'+(r.v/max*100).toFixed(2)+'%">'+
+    inner+'</span><span class=bd-val>'+fmt(r.v)+'</span>'+
+    '<span class=bd-pct>'+(r.v/tot*100).toFixed(1)+'%</span></div>';
+  }).join('');
+  var legend=split?'<div class=bd-legend>'+TOKL.map(function(l,i){
+   return '<span><i style="background:var(--s'+(i+1)+')"></i>'+l+'</span>'; }).join('')+'</div>':'';
+  var more=(tail.length||bdAll)?'<button class=bd-more>'+
+   (bdAll?'show less':'show '+tail.length+' more')+'</button>':'';
+  el.innerHTML=head(fmt(tot))+'<div class=bd-rows>'+body+more+'</div>'+legend+
+   '<div class=bd-tip hidden></div>';
+ }
+ // a hovered row explains its own split: amount and share per token class
+ function bdTip(row,tip){
+  var d=row.dataset.d.split(',').map(Number);
+  var sum=d.reduce(function(a,b){return a+b;},0);
+  var L=['IN','OUT','CACHE READ','CACHE WRITE'];
+  tip.innerHTML='<div class=tip-h>'+row.dataset.k+
+   (+row.dataset.c>1?' <i>×'+row.dataset.c+'</i>':'')+'</div>'+
+   L.map(function(l,i){
+    return '<div class=tip-r><i style="background:var(--s'+(i+1)+')"></i>'+
+     '<span>'+l+'</span><b>'+bdUsd(d[i])+'</b><u>'+
+     (sum?(d[i]/sum*100).toFixed(1):'0.0')+'%</u></div>'; }).join('')+
+   '<div class="tip-r tip-t"><i></i><span>cost</span><b>'+bdUsd(sum)+'</b><u></u></div>'+
+   (row.dataset.vf!==bdUsd(sum)
+     ? '<div class="tip-r tip-t"><i></i><span>selected metric</span><b>'+row.dataset.vf+
+       '</b><u>'+row.dataset.p+'%</u></div>' : '');
+  tip.hidden=false;
+ }
+ function bdUsd(n){ return n>0&&n<0.01?'$'+n.toFixed(4):'$'+n.toFixed(2); }
+ document.addEventListener('mouseover',function(e){
+  if(!e.target.closest)return;
+  var row=e.target.closest('.bd-row'); if(!row)return;
+  var wrap=row.closest('.bd'), tip=wrap&&wrap.querySelector('.bd-tip');
+  if(!tip)return;
+  bdTip(row,tip);
+  var rb=row.getBoundingClientRect(), wb=wrap.getBoundingClientRect();
+  tip.style.top=(rb.bottom-wb.top+6)+'px';
+  tip.style.left=Math.min(rb.left-wb.left+90,wb.width-250)+'px';
+ });
+ document.addEventListener('mouseout',function(e){
+  if(!e.target.closest)return;
+  var row=e.target.closest('.bd-row'); if(!row)return;
+  if(e.relatedTarget&&row.contains(e.relatedTarget))return;
+  var wrap=row.closest('.bd'), tip=wrap&&wrap.querySelector('.bd-tip');
+  if(tip)tip.hidden=true;
+ });
+ function bdSeg(id,items,cur){
+  return '<span class=seg>'+items.map(function(it){
+   return '<button data-'+id+'="'+it[0]+'"'+(it[0]===cur?' class=on':'')+'>'+it[1]+'</button>';
+  }).join('')+'</span>';
+ }`;
+
 // shared by both pages; inlined into each one's script
 const COMBO_JS = `
  [].forEach.call(document.querySelectorAll('.combo'),function(c){
@@ -50,6 +132,35 @@ const COMBO_JS = `
  * Computed over a built tree so the parser and the adapter stay put.
  * Returns a Map keyed by node.
  */
+export function perAgent(root) {
+  const by = {};
+  (function walk(n, depth) {
+    if (depth) {
+      const p = n.costParts || { in: 0, out: 0, cr: 0, cw: 0 };
+      const g = by[n.agent] || (by[n.agent] = { c: 0, o: 0, d: [0, 0, 0, 0], ms: 0,
+        t: [0, 0, 0, 0] });
+      g.c++; g.o += n.cost.own;
+      g.d[0] += p.in; g.d[1] += p.out; g.d[2] += p.cr; g.d[3] += p.cw;
+      g.t[0] += n.tokens.input; g.t[1] += n.tokens.output;
+      g.t[2] += n.tokens.cacheRead; g.t[3] += n.tokens.cacheWrite5m + n.tokens.cacheWrite1h;
+      if (n.start && n.end) g.ms += Date.parse(n.end) - Date.parse(n.start);
+    }
+    for (const c of n.children) walk(c, depth + 1);
+  })(root, 0);
+  for (const k in by) { by[k].o = +by[k].o.toFixed(4);
+    by[k].d = by[k].d.map(v => +v.toFixed(6)); }
+  return by;
+}
+
+export function agentMs(root) {
+  let ms = 0;
+  (function walk(n, depth) {
+    if (depth && n.start && n.end) ms += Date.parse(n.end) - Date.parse(n.start);
+    for (const c of n.children) walk(c, depth + 1);
+  })(root, 0);
+  return ms;
+}
+
 export function subtreeTotals(root) {
   const agg = new Map();
   const zero = () => ({ t: { in: 0, out: 0, cr: 0, cw: 0 }, d: { in: 0, out: 0, cr: 0, cw: 0 } });
@@ -193,6 +304,57 @@ table.sub-tt td{padding:.55em .75em} table.sub-tt th{padding:.7em .75em}
 table.sub-tt th{position:static}
 table.sub-tt tr[data-depth]>td{background:none}
 .legend{color:var(--dim);font-size:11px}
+/* ---- breakdown ---- */
+.bd{background:var(--card);border:1px solid var(--line);border-radius:12px;margin:0 0 1em;
+ box-shadow:0 1px 2px rgba(11,11,11,.05);overflow:hidden}
+.bd-head{display:flex;align-items:center;gap:.6em;padding:.6em .8em;border-bottom:1px solid var(--line2);
+ flex-wrap:wrap}
+.bd-head>b{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--mut)}
+.bd-tot{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{background:none;border:none;border-right:1px solid var(--line);color:var(--mut);
+ font:inherit;font-size:11px;padding:.3em .55em;cursor:pointer}
+.seg button:last-child{border-right:none}
+.seg button:hover{background:#f2f4f7;color:var(--tx)}
+.seg button.on{background:var(--accbg);color:var(--acc);font-weight:650}
+.bd-rows{padding:.5em .8em .7em}
+.bd-row{display:flex;align-items:center;gap:.7em;padding:.22em 0;font-size:11.5px}
+.bd-row.is-main .bd-name{font-weight:700}
+.bd-row.is-main .bd-bar i{background:var(--tx)}
+.bd-name{flex:0 0 13em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx)}
+.bd-name i{font-style:normal;color:var(--dim);margin-left:.35em;font-size:10.5px}
+.bd-bar{flex:1 1 auto;height:9px;background:#f0f1f4;border-radius:3px;min-width:4em;overflow:hidden}
+.bd-bar i{display:block;height:100%;background:var(--acc);border-radius:3px}
+/* cost bars carry their own composition: fixed hue order, 2px surface gaps */
+.bd-bar.split{display:flex;gap:2px;width:var(--w);flex:0 0 auto;background:none;min-width:2px}
+.bd-bar.split i{border-radius:2px;min-width:1px}
+.bd-bar.split i:first-child{border-radius:3px 2px 2px 3px}
+.bd-bar.split i:last-child{border-radius:2px 3px 3px 2px}
+.bd-row:has(.bd-bar.split){gap:0}
+.bd-row .bd-bar.split{margin-right:.7em}
+.bd-rows:has(.bd-bar.split) .bd-row{display:grid;grid-template-columns:13em 1fr 6.5em 3.6em;align-items:center}
+.bd-legend{display:flex;gap:1.1em;flex-wrap:wrap;padding:.1em .8em .8em;font-size:10.5px;color:var(--mut)}
+.bd-legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:.4em}
+.bd-more{background:none;border:none;color:var(--acc);font:inherit;font-size:11px;font-weight:650;
+ cursor:pointer;padding:.35em 0 0}
+.bd-row.is-other .bd-name{color:var(--mut);font-style:italic}
+.bd{position:relative}
+.bd-row:hover{background:#f7f8fa;border-radius:5px}
+.bd-tip{position:absolute;z-index:30;background:var(--card);border:1px solid var(--line);
+ border-radius:9px;box-shadow:0 8px 24px rgba(11,11,11,.15);padding:.5em .6em;min-width:15em;
+ pointer-events:none;font-size:11px}
+.tip-h{font-weight:700;margin-bottom:.35em;padding-bottom:.35em;border-bottom:1px solid var(--line2)}
+.tip-h i{font-style:normal;color:var(--dim);font-weight:400}
+.tip-r{display:flex;align-items:center;gap:.5em;padding:.1em 0}
+.tip-r i{width:8px;height:8px;border-radius:2px;flex:0 0 8px}
+.tip-r span{color:var(--mut);flex:1 1 auto}
+.tip-r b{font-weight:650;font-variant-numeric:tabular-nums}
+.tip-r u{text-decoration:none;color:var(--dim);width:3.4em;text-align:right;
+ font-variant-numeric:tabular-nums}
+.tip-t{margin-top:.3em;padding-top:.35em;border-top:1px solid var(--line2)}
+.tip-t span{color:var(--tx);font-weight:600}
+.bd-val{flex:0 0 6.5em;text-align:right;font-weight:650;font-variant-numeric:tabular-nums}
+.bd-pct{flex:0 0 3.6em;text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
 /* ---- view tabs ---- */
 .tabs{display:flex;gap:.15em;margin:0 0 .8em;border-bottom:1px solid var(--line)}
 .tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--mut);
@@ -341,7 +503,8 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   // header: [label, sortable, numeric, extra class]
   const COLS = [
     ["status", 1, 0, "l"], ["session", 1, 0, "l"], ["project", 1, 0, "l"],
-    ["started", 1, 0, "l"], ["dur", 1, 1, "r"], ["agents", 1, 1, "r"], ["calls", 1, 1, "r"],
+    ["started", 1, 0, "l"], ["dur", 1, 1, "r"], ["agent time", 1, 1, "r"],
+    ["agents", 1, 1, "r"], ["calls", 1, 1, "r"],
     ...METRICS.map(([, l]) => [l, 1, 1, "r"]), ["cost", 1, 1, "r"],
   ];
   const START_COL = 3;
@@ -349,10 +512,10 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
     `<th class="${cls}${sortable ? " s" : ""}"${sortable ? ` data-c="${i}" data-n="${numeric}"` : ""}>` +
     `${esc(label)}${sortable ? `<span class=arr></span>` : ""}</th>`).join("");
 
-  const sum = { cost: 0, agents: 0, calls: 0, t: { in: 0, out: 0, cr: 0, cw: 0 },
+  const sum = { cost: 0, agents: 0, calls: 0, ams: 0, t: { in: 0, out: 0, cr: 0, cw: 0 },
                 d: { in: 0, out: 0, cr: 0, cw: 0 } };
   for (const r of rows) {
-    sum.cost += r.cost; sum.agents += r.agents; sum.calls += r.apiCalls || 0;
+    sum.cost += r.cost; sum.agents += r.agents; sum.calls += r.apiCalls || 0; sum.ams += r.agentMs || 0;
     for (const [m] of METRICS) { sum.t[m] += (r.tokens || {})[m] || 0;
                                  sum.d[m] += (r.tokenCost || {})[m] || 0; }
   }
@@ -367,7 +530,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
     const text = [title, r.subtitle, r.desc, ws(r).label, ws(r).cwd, ws(r).branch,
       r.id, r.model].filter(Boolean).join(" ").toLowerCase();
     return `<tr data-live="${r.live ? 1 : 0}" data-project="${esc(ws(r).label)}" data-model="${esc(r.model || "")}"
- data-start="${r.start ? Date.parse(r.start) : 0}"
+ data-start="${r.start ? Date.parse(r.start) : 0}" data-dur="${r.durationS ?? 0}" data-ams="${r.agentMs ?? 0}" data-id="${esc(r.id)}"
  data-cost="${r.cost}" data-agents="${r.agents}" data-calls="${r.apiCalls ?? 0}"
  ${METRICS.map(([m]) => `data-${m}="${tk[m]}" data-${m}usd="${tc[m]}"`).join(" ")}
  data-text="${esc(text)}">` +
@@ -381,6 +544,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
       `<div class=m2>${ws(r).branch ? "⎇ " + esc(ws(r).branch) : ""}</div></td>` +
       `<td class="l dim mono" data-v="${esc(r.start || "")}">${esc((r.start || "").slice(0, 16).replace("T", " "))}</td>` +
       `<td class="r dim" data-v="${r.durationS ?? 0}">${fmtDur(r.durationS)}</td>` +
+      `<td class="r dim" data-v="${r.agentMs ?? 0}">${r.agentMs ? fmtDur(Math.round(r.agentMs / 1000)) : "<span class=zero>·</span>"}</td>` +
       `<td class="r dim" data-v="${r.agents}">${r.agents}</td>` +
       `<td class="r dim" data-v="${r.apiCalls ?? 0}">${num(r.apiCalls)}</td>` +
       METRICS.map(([m]) => `<td class="r${tk[m] ? "" : " zero"}" data-v="${tk[m]}">` +
@@ -397,8 +561,10 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   <span class=sub><span id=k-n>${rows.length}</span> sessions</span></div>
  <div class=tile><span class=lbl>Avg / session</span><b id=k-avg>${usd(rows.length ? sum.cost / rows.length : 0)}</b>
   <span class=sub>median <span id=k-med>${usd(median)}</span></span></div>
- <div class=tile><span class=lbl>Agents</span><b id=k-agents>${num(sum.agents)}</b>
-  <span class=sub><span id=k-calls>${num(sum.calls)}</span> API calls</span></div>
+ <div class=tile title="wall clock summed per subagent across the visible sessions">
+  <span class=lbl>Agents</span><b id=k-agents>${num(sum.agents)}</b>
+  <span class=sub><span id=k-calls>${num(sum.calls)}</span> API calls · <span id=k-ams>${
+   fmtDur(Math.round(sum.ams / 1000))}</span> agent time</span></div>
  ${METRICS.map(([m, label]) => `<div class=tile><span class=lbl>${label}</span>
   <b id=k-${m}>${kTok(sum.t[m])}</b><span class=sub id=k-${m}usd>${usd(sum.d[m])}</span></div>`).join("")}
 </div>
@@ -415,6 +581,10 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
    `<button class=rbtn data-r="${v}">${l}</button>`).join("")}</span>
  <label class=dates>from <input id=from type=date> to <input id=to type=date></label>
 </div>
+<div class=bd id=bd></div>
+<script type="application/json" id=agentdata>${JSON.stringify(
+  Object.fromEntries(rows.filter(r => r.byAgent && Object.keys(r.byAgent).length)
+    .map(r => [r.id, r.byAgent]))).replace(/</g, "\\u003c")}</script>
 <div id=twrap><table class="tt" id=tt><thead><tr>${head}</tr></thead><tbody>${tr}</tbody></table></div>
 <script>
 (function(){
@@ -425,6 +595,83 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
               ['from','from',''],['to','to','']];
  var range=qs.get('r')!==null?+qs.get('r'):30;   // days; 0 = no limit
  var METRICS=['in','out','cr','cw'];
+ var BMET=[['cost','cost'],['out','out'],['cr','cache read'],['cw','cache write'],
+           ['in','in'],['n','sessions'],['agents','agents'],['calls','calls'],
+           ['dur','wall time'],['ams','agent time']];
+ var bdGroup=({model:1,agent:1})[qs.get('by')]?qs.get('by'):'project';
+ var bdMetric=qs.get('by2')||'cost', bdAll=false;
+ var AGENTS=JSON.parse(document.getElementById('agentdata').textContent);
+ function bVal(d,k){
+  if(k==='cost')return +d.cost;
+  if(k==='n')return 1;
+  if(k==='agents')return +d.agents;
+  if(k==='calls')return +d.calls;
+  if(k==='dur')return (+d.dur)*1000;
+  if(k==='ams')return +d.ams;
+  return +d[k];
+ }
+ function bFmt(v,k){
+  if(k==='cost')return usd(v);
+  if(k==='n'||k==='agents'||k==='calls')return Math.round(v).toLocaleString('en');
+  if(k==='dur'||k==='ams')return v>=3600000?(v/3600000).toFixed(1)+'h':Math.round(v/60000)+'m';
+  return kTok(v);
+ }
+ function drawBreakdown(vis){
+  var by={}, order=[];
+  if(bdGroup==='agent'){
+   var RES={cost:1,in:1,out:1,cr:1,cw:1};        // metrics where a remainder makes sense
+   vis.forEach(function(d){
+    var per=AGENTS[d.id]||{};
+    if(RES[bdMetric]){
+     var whole=bVal(d,bdMetric), sub=0, sd=[0,0,0,0];
+     for(var nm in per){ var a2=per[nm];
+      sub+=bdMetric==='cost'?a2.o:a2.t[METRICS.indexOf(bdMetric)];
+      for(var q=0;q<4;q++)sd[q]+=a2.d[q];
+     }
+     var rest=whole-sub;
+     if(rest>0){
+      if(!by['main']){ by['main']={k:'main',c:0,v:0,d:[0,0,0,0],root:true}; order.push('main'); }
+      var gm=by['main']; gm.c++; gm.v+=rest;
+      METRICS.forEach(function(m,i){ gm.d[i]+=Math.max(+d[m+'usd']-sd[i],0); });
+     }
+    }
+    for(var name in per){
+     var a=per[name];
+     if(!by[name]){ by[name]={k:name,c:0,v:0,d:[0,0,0,0]}; order.push(name); }
+     var g=by[name]; g.c+=a.c;
+     g.v+=bdMetric==='cost'?a.o:bdMetric==='n'||bdMetric==='agents'?a.c
+        :bdMetric==='calls'?0:bdMetric==='ams'?a.ms:bdMetric==='dur'?a.ms
+        :a.t[METRICS.indexOf(bdMetric)];
+     for(var j=0;j<4;j++)g.d[j]+=a.d[j];
+    }
+   });
+  } else vis.forEach(function(d){
+   var key=(bdGroup==='model'
+    ?(d.model?d.model.replace('claude-','').replace('-20251001',''):'—')
+    :(d.project||'—'))||'—';
+   if(!by[key]){ by[key]={k:key,c:0,v:0,d:[0,0,0,0]}; order.push(key); }
+   var g=by[key]; g.c++; g.v+=bVal(d,bdMetric);
+   METRICS.forEach(function(m,i){ g.d[i]+=+d[m+'usd']; });
+  });
+  var rows=order.map(function(k){return by[k];}).sort(function(a,b){return b.v-a.v;});
+  bdPaint(document.getElementById('bd'),rows,function(v){return bFmt(v,bdMetric);},
+   bdMetric==='cost',
+   function(tot){ return '<div class=bd-head><b>Breakdown</b>'+
+    bdSeg('g',[['project','by project'],['model','by model'],['agent','by agent']],bdGroup)+
+    bdSeg('m',BMET,bdMetric)+'<span class=bd-tot>'+tot+'</span></div>'; },
+   bdAll,true);
+ }
+ document.addEventListener('click',function(e){
+  if(!e.target.closest)return;
+  var b=e.target.closest('#bd button'); if(!b)return;
+  if(b.classList.contains('bd-more'))bdAll=!bdAll;
+  else if(b.dataset.g)bdGroup=b.dataset.g; else if(b.dataset.m)bdMetric=b.dataset.m;
+  apply();
+  var u=new URL(location.href);
+  bdGroup==='project'?u.searchParams.delete('by'):u.searchParams.set('by',bdGroup);
+  bdMetric==='cost'?u.searchParams.delete('by2'):u.searchParams.set('by2',bdMetric);
+  history.replaceState(null,'',u);
+ });
  var tb,rows;
  var kTok=function(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(0)+'k':String(n)};
  var usd=function(n){return n>0&&n<0.01?'$'+n.toFixed(4):'$'+n.toFixed(2)};
@@ -449,7 +696,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   [].forEach.call(document.querySelectorAll('.rbtn'),function(b){
    b.classList.toggle('on',!f&&!tt&&+b.dataset.r===range); });
   rows.sort(cmp);
-  var vis=[], cost=0, agents=0, calls=0, tok={}, tc={};
+  var vis=[], shown=[], cost=0, agents=0, calls=0, ams=0, tok={}, tc={};
   METRICS.forEach(function(m){tok[m]=0;tc[m]=0});
   rows.forEach(function(r){
    var d=r.dataset;
@@ -458,15 +705,18 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
    r.style.display=ok?'':'none';
    tb.appendChild(r);
    if(!ok)return;
-   vis.push(+d.cost); cost+=+d.cost; agents+=+d.agents; calls+=+d.calls;
+   shown.push(d);
+   vis.push(+d.cost); cost+=+d.cost; agents+=+d.agents; calls+=+d.calls; ams+=+d.ams;
    METRICS.forEach(function(m){tok[m]+=+d[m]; tc[m]+=+d[m+'usd'];});
   });
+  drawBreakdown(shown);
   var n=vis.length;
   $('k-cost').textContent=usd(cost); $('k-n').textContent=n;
   $('k-avg').textContent=n?usd(cost/n):'—';
   vis.sort(function(a,b){return a-b});
   $('k-med').textContent=n?usd(vis[n>>1]):'—';
   $('k-agents').textContent=agents; $('k-calls').textContent=calls.toLocaleString('en');
+  $('k-ams').textContent=ams>=3600000?(ams/3600000).toFixed(1)+'h':Math.round(ams/60000)+'m';
   METRICS.forEach(function(m){$('k-'+m).textContent=kTok(tok[m]); $('k-'+m+'usd').textContent=usd(tc[m]);});
   [].forEach.call(document.querySelectorAll('#tt th[data-c]'),function(th){
    var on=+th.dataset.c===sortCol;
@@ -507,6 +757,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   if(v===null)return;
   if(e.type==='checkbox')e.checked=v==='1'; else e.value=v;
  });
+ ${BD_JS}
  ${COMBO_JS}
  index(); apply();
  // Refresh in place instead of reloading: swap the rows, keep the filters,
@@ -636,7 +887,7 @@ export function treeHTML(tree, opts = {}) {
     for (const c of n.children) walk(c, depth + 1, keyOf(n));
   })(tree, 0, null);
 
-  const t = tree, R = agg.get(tree), ws = opts.workspace || { label: "", cwd: "", branch: t.branch };
+  const t = tree, R = agg.get(tree), aMs = agentMs(tree), ws = opts.workspace || { label: "", cwd: "", branch: t.branch };
   const nAgents = (function cnt(n) { return n.children.reduce((a, c) => a + 1 + cnt(c), 0); })(t);
   const d = opts.describe || null;
   const sesTitle = (d && d.title) || t.summary || t.identity?.customTitle || t.identity?.agentName || t.agent;
@@ -671,9 +922,13 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   <b>${kTok(R.tot.t[m])}</b><span class=sub>${usd(R.tot.d[m])}</span></div>`).join("")}
  <div class=tile><span class=lbl>Duration</span><b>${fmtDur(t.durationS)}</b>
   <span class=sub>${num(t.apiCalls)} API calls</span></div>
+ <div class=tile title="wall clock summed per subagent; they overlap, so this can exceed the session">
+  <span class=lbl>Agent time</span><b>${fmtDur(Math.round(aMs / 1000))}</b>
+  <span class=sub>${t.durationS ? "×" + (aMs / 1000 / t.durationS).toFixed(1) + " of the session" : "—"}</span></div>
  <div class=tile><span class=lbl>Model</span><b>${esc(shortModel(t.model.slice(0, 1)))}</b>
   <span class=sub>${esc(t.effort.join(",") || "—")}</span></div>
 </div>
+<div class=bd id=bd></div>
 <div class=tabs>
  <button class=tab data-v=flow>Flow</button
  ><button class=tab data-v=trace>Trace</button
@@ -779,6 +1034,7 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  FILTERS.forEach(function(f){                  // restore from the URL before first paint
   var v=qs.get(f[1]); if(v!==null)document.getElementById(f[0]).value=v;
  });
+ ${BD_JS}
  ${COMBO_JS}
  // ---- alternative views: a trace timeline and a flow graph ----
  var NODES=JSON.parse(document.getElementById('nodes').textContent);
@@ -979,6 +1235,53 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
    usd(ROOT.o+top)+'</b></span></div>');
   document.getElementById('flow').innerHTML=out.join('');
  }
+ // ---- breakdown: where the money (or the tokens, or the time) actually went ----
+ // main is counted as one more row. It is not a subagent, but it burns real
+ // tokens — a quarter of the bill in a typical session — so leaving it out
+ // would make every percentage a lie about a smaller whole.
+ var MET=[['o','cost'],['t1','out'],['t2','cache read'],['t3','cache write'],
+          ['t0','in'],['n','calls'],['ms','agent time']];
+ var bdGroup=qs.get('by')==='model'?'model':'agent', bdMetric=qs.get('by2')||'o', bdAll=false;
+ function metVal(n,k){
+  if(k==='o')return n.o;
+  if(k==='n')return n.n;
+  if(k==='ms')return (n.e||0)-(n.s||0);
+  return n.tk[+k.slice(1)];
+ }
+ function metFmt(v,k){
+  if(k==='o')return usd(v);
+  if(k==='n')return v.toLocaleString('en');
+  if(k==='ms')return dur(v);
+  return kTok(v);
+ }
+ function drawBreakdown(){
+  var by={}, order=[];
+  NODES.forEach(function(n){
+   var key=bdGroup==='model'?(n.m||'—'):n.a;
+   if(!by[key]){ by[key]={k:key,c:0,v:0,root:false,d:[0,0,0,0]}; order.push(key); }
+   var g=by[key]; g.c++; g.v+=metVal(n,bdMetric);
+   for(var j=0;j<4;j++)g.d[j]+=n.dl[j];
+   if(!n.p)g.root=true;
+  });
+  var rows=order.map(function(k){return by[k];}).sort(function(a,b){return b.v-a.v;});
+  bdPaint(document.getElementById('bd'),rows,function(v){return metFmt(v,bdMetric);},
+   bdMetric==='o',
+   function(tot){ return '<div class=bd-head><b>Breakdown</b>'+
+    bdSeg('g',[['agent','by agent'],['model','by model']],bdGroup)+
+    bdSeg('m',MET,bdMetric)+'<span class=bd-tot>'+tot+'</span></div>'; },
+   false,false);
+ }
+ document.addEventListener('click',function(e){
+  if(!e.target.closest)return;
+  var b=e.target.closest('#bd button'); if(!b)return;
+  if(b.classList.contains('bd-more'))bdAll=!bdAll;
+  else if(b.dataset.g)bdGroup=b.dataset.g; else if(b.dataset.m)bdMetric=b.dataset.m;
+  drawBreakdown();
+  var u=new URL(location.href);
+  bdGroup==='agent'?u.searchParams.delete('by'):u.searchParams.set('by',bdGroup);
+  bdMetric==='o'?u.searchParams.delete('by2'):u.searchParams.set('by2',bdMetric);
+  history.replaceState(null,'',u);
+ });
  function setView(v){
   view=v;
   ['costs','trace','flow'].forEach(function(x){
@@ -1004,7 +1307,7 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   var k=b.dataset.k; fopen[k]?delete fopen[k]:fopen[k]=1;
   drawFlow();
  });
- index(); order(); paint();
+ drawBreakdown(); index(); order(); paint();
  setView(view);
  // Live sessions refresh in place: swap the table, then put back what the user
  // had — open nodes, sort, filters and scroll position.
