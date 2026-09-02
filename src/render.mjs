@@ -142,6 +142,14 @@ details.prompt[open]>summary::after{content:"show less ▴"}
 .toolbar input[type=number]{width:5em}
 .toolbar input[type=number]:disabled{color:var(--dim);background:#f4f4f2}
 .toolbar input[type=checkbox]{accent-color:var(--acc);margin:0}
+.rng{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:var(--card)}
+.rbtn{background:none;border:none;border-right:1px solid var(--line);color:var(--mut);font:inherit;
+ font-size:11.5px;padding:.35em .6em;cursor:pointer}
+.rbtn:last-child{border-right:none}
+.rbtn:hover{background:#f2f4f7;color:var(--tx)}
+.rbtn.on{background:var(--accbg);color:var(--acc);font-weight:650}
+.dates{color:var(--dim);font-size:11.5px}
+.dates input{font-size:11.5px;padding:.25em .35em;color-scheme:light}
 .combo{position:relative;display:inline-block}
 .copts{position:absolute;z-index:20;top:calc(100% + 4px);left:0;min-width:100%;max-height:17em;
  overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:.25em;
@@ -185,6 +193,129 @@ table.sub-tt td{padding:.55em .75em} table.sub-tt th{padding:.7em .75em}
 table.sub-tt th{position:static}
 table.sub-tt tr[data-depth]>td{background:none}
 .legend{color:var(--dim);font-size:11px}
+/* ---- view tabs ---- */
+.tabs{display:flex;gap:.15em;margin:0 0 .8em;border-bottom:1px solid var(--line)}
+.tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--mut);
+ font:inherit;font-size:12.5px;font-weight:600;padding:.5em .9em;cursor:pointer;margin-bottom:-1px}
+.tab:hover{color:var(--tx)}
+.tab.on{color:var(--acc);border-bottom-color:var(--acc)}
+.view{display:none} .view.on{display:block}
+/* depth ramp: one hue, light to dark, so nesting reads as magnitude */
+:root{--dep0:#2a78d6;--dep1:#5f95e0;--dep2:#9dc0ef;--dep3:#cfe0f7}
+/* ---- trace ---- */
+#trace{padding:.3em 0}
+.tl-axis{display:flex;color:var(--dim);font-size:10px;border-bottom:1px solid var(--line);
+ padding-bottom:.4em;margin-bottom:.3em;position:sticky;top:0;background:var(--card);z-index:2}
+.tl-axis .tl-track{position:relative;height:1.1em}
+.tl-axis span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tl-axis span:first-child{transform:none}
+.tl-row{display:flex;align-items:center;height:26px;border-radius:5px}
+.tl-row:hover{background:#f6f6f4}
+.tl-row.has{cursor:pointer}
+.tl-name{flex:0 0 21em;display:flex;align-items:center;gap:.15em;overflow:hidden;
+ white-space:nowrap;font-size:12px;padding-right:.7em}
+.tl-name .a{overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.tl-name .sh{background:#eceef1;border-radius:20px;padding:0 .4em;font-size:10px;color:var(--mut);margin-left:.35em}
+.tl-row .tw{flex:0 0 16px;font-size:8px;color:var(--dim);display:inline-flex;justify-content:center}
+.tl-row.has .tw::before{content:▶} .tl-row.has.op .tw::before{content:▼}
+.tl-track{position:relative;flex:1 1 auto;height:100%;min-width:0}
+.tl-track::before{content:;position:absolute;inset:auto 0 0 0;top:50%;border-top:1px dashed #eceef1}
+.tl-bar{position:absolute;top:50%;transform:translateY(-50%);height:11px;border-radius:3px;min-width:2px}
+#trace{position:relative;user-select:none}
+#tl-sel{display:none;position:absolute;top:0;bottom:0;background:rgba(42,120,214,.12);
+ border-left:1px solid var(--acc);border-right:1px solid var(--acc);pointer-events:none;z-index:1}
+.tl-axis .tl-name{display:flex;align-items:center;font-size:10px}
+#tl-reset{background:var(--accbg);border:1px solid #b9d4f4;color:var(--acc);border-radius:6px;
+ padding:.1em .5em;font:inherit;font-size:10px;font-weight:600;cursor:pointer}
+.tl-lbl{position:absolute;top:50%;transform:translateY(-50%);font-size:10.5px;color:var(--mut);
+ white-space:nowrap;pointer-events:none}
+/* ---- flow ---- */
+#flow{padding:.6em .7em}
+.fw-stage{border:1px solid var(--line);border-radius:10px;background:#fbfbfa}
+.fw-head{display:flex;align-items:center;gap:.6em;padding:.5em .7em;border-bottom:1px solid var(--line);
+ font-size:11px;color:var(--mut);flex-wrap:wrap}
+.fw-when{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim)}
+.fw-head .fw-bd{margin:0 0 0 auto}
+.fw-head .fw-bd span{min-width:4em}
+/* one quiet line of figures, not a stacked block */
+.fw-line{margin-left:auto;display:flex;gap:.85em;align-items:baseline;font-size:10.5px;color:var(--dim)}
+.fw-line>span{white-space:nowrap}
+.fw-line b{font-weight:650;color:var(--mut);font-variant-numeric:tabular-nums}
+.fw-line u{text-decoration:none;color:var(--dim);font-variant-numeric:tabular-nums}
+.fw-line>span.zero b{color:#c9c8c4;font-weight:400}
+.fw-head b{background:none;color:var(--dim);border:1px solid var(--line);border-radius:6px;
+ min-width:1.6em;text-align:center;padding:.05em .3em;font-size:11px;font-weight:650}
+.fw-head .fw-t{font-weight:650;color:var(--tx)}
+.fw-n em{font-style:normal;color:var(--dim)}
+.fw-head .fw-c{font-weight:700;font-size:14px;color:var(--tx);
+ font-variant-numeric:tabular-nums;padding-left:.5em}
+.fw-boxes{display:flex;flex-wrap:wrap;gap:.5em;padding:.6em .7em}
+.fw-box{flex:0 0 auto;width:19.5em;background:var(--card);border:1px solid var(--line);
+ border-radius:8px;padding:.5em .65em;cursor:pointer;box-shadow:0 1px 2px rgba(11,11,11,.04)}
+.fw-box:hover{border-color:var(--acc)}
+.fw-box.has{cursor:pointer}
+.fw-box.open{border-color:var(--acc);border-bottom-left-radius:0;border-bottom-right-radius:0;
+ box-shadow:none;position:relative;z-index:2;margin-bottom:-9px;padding-bottom:.9em}
+.fw-subs{margin:.5em -.65em -.5em;padding:.45em .65em .5em;background:#f7f8fa;
+ border-top:1px solid var(--line2);border-radius:0 0 7px 7px}
+.fw-open{display:flex;gap:.4em;align-items:baseline;font-size:10.5px;color:var(--acc);font-weight:650}
+.fw-open b{margin-left:auto;font-weight:700;color:var(--tx);font-size:12px}
+.fw-subs .fw-bd{margin-top:.3em}
+.fw-subs .fw-bd b{color:var(--mut)}
+.fw-box.open .fw-subs{border-radius:0}
+/* an opened parent hands its own flow the same layout, one level in */
+.fw-nest{flex:1 0 100%;border:1px solid var(--acc);border-radius:0 9px 9px 9px;
+ background:#f6f9fe;padding:.35em .7em .7em;margin:0 0 .35em;position:relative;z-index:1}
+.fw-nesthead{display:flex;gap:.5em;align-items:baseline;padding:.5em .1em .55em;
+ font-size:10.5px;color:var(--mut)}
+.fw-nesthead>b{color:var(--tx);font-weight:650}
+.fw-nesthead span{color:var(--dim)}
+.fw-nesthead .fw-nestc{margin-left:auto;font-weight:700;color:var(--tx);font-size:12px}
+.fw-nest .fw-stage{background:var(--card)}
+.fw-nest .fw-gap{height:1.6em}
+.fw-name{display:flex;align-items:baseline;gap:.3em;font-size:12.5px;white-space:nowrap;overflow:hidden}
+.fw-name .a{font-weight:650;overflow:hidden;text-overflow:ellipsis}
+.fw-cost{margin-left:auto;font-weight:700;font-size:13px;font-variant-numeric:tabular-nums}
+.fw-task{font-size:11px;color:var(--mut);margin:.2em 0 .35em;overflow:hidden;
+ text-overflow:ellipsis;white-space:nowrap}
+.fw-meta{display:flex;gap:.5em;align-items:center;font-size:10.5px;color:var(--dim);flex-wrap:wrap}
+.fw-model{color:var(--mut);font-weight:600}
+.fw-par{background:#eceef1;border-radius:5px;padding:0 .35em;color:var(--mut)}
+.fw-model em{font-style:normal;background:#eceef1;border-radius:4px;padding:0 .3em;margin-left:.3em;
+ font-weight:500}
+.fw-clock{font-size:10.5px;color:var(--dim);margin-top:.15em;
+ font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.fw-subline{display:flex;gap:.3em;align-items:baseline;flex-wrap:wrap;font-size:10.5px;
+ color:var(--dim);margin-top:.45em;padding-top:.45em;border-top:1px solid var(--line2)}
+.fw-subline span{background:#eceef1;color:var(--mut);border-radius:5px;padding:0 .35em}
+.fw-subline b{margin-left:auto;font-weight:650;color:var(--mut)}
+.fw-par{background:#eceef1;border-radius:5px;padding:0 .35em;color:var(--mut)}
+/* token breakdown, same four classes as everywhere else */
+.fw-bd{display:flex;gap:.5em;margin-top:.45em}
+.fw-bd span{display:flex;flex-direction:column;line-height:1.3;min-width:3.4em}
+.fw-bd i{font-style:normal;font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.03em}
+.fw-bd b{font-size:11px;font-weight:650;font-variant-numeric:tabular-nums}
+.fw-bd u{text-decoration:none;font-size:10px;color:var(--mut);font-variant-numeric:tabular-nums}
+.fw-bd span.zero b{color:#c9c8c4;font-weight:400}
+.fw-bd.box{padding-top:.45em;border-top:1px solid var(--line2)}
+.fw-main{background:var(--card);border-color:#b9d4f4;box-shadow:0 1px 2px rgba(11,11,11,.05)}
+.fw-main .fw-head{border-bottom-color:var(--line2);background:var(--accbg)}
+.fw-title{font-size:13px;font-weight:700;color:var(--tx)}
+.fw-mainsub{padding:.5em .7em;font-size:11px;color:var(--mut);line-height:1.5}
+/* the divider says plainly that everything under it is a subagent */
+.fw-divider{display:flex;align-items:center;gap:.7em;margin:1.1em .1em .8em}
+.fw-divider::before,.fw-divider::after{content:"";flex:1;border-top:1px solid var(--line)}
+.fw-divider span{color:var(--mut);font-size:10.5px;font-weight:650;text-transform:uppercase;
+ letter-spacing:.07em}
+.fw-total{display:flex;align-items:baseline;gap:1em;margin-top:.6em;padding:.6em .8em;
+ border:1px solid var(--line);border-radius:10px;background:var(--card);font-size:11.5px;color:var(--mut)}
+.fw-sum{margin-left:auto;font-variant-numeric:tabular-nums}
+.fw-sum i{font-style:normal;color:var(--dim);font-size:10.5px;margin-right:.15em}
+.fw-sum b{font-size:15px;font-weight:700;color:var(--tx)}
+.fw-gap{display:flex;align-items:center;justify-content:center;height:2.1em;position:relative}
+.fw-gap::before{content:"";position:absolute;top:0;bottom:0;left:1.6em;border-left:2px dotted #d3d7dd}
+.fw-gap span{background:var(--bg);color:var(--dim);font-size:10.5px;padding:0 .5em;margin-left:.5em;
+ position:relative;left:-.2em}
 /* narrower viewports: tighten the two elastic columns and the gutters before
    falling back to the horizontal scroll #twrap still provides */
 @media (max-width:1500px){
@@ -236,6 +367,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
     const text = [title, r.subtitle, r.desc, ws(r).label, ws(r).cwd, ws(r).branch,
       r.id, r.model].filter(Boolean).join(" ").toLowerCase();
     return `<tr data-live="${r.live ? 1 : 0}" data-project="${esc(ws(r).label)}" data-model="${esc(r.model || "")}"
+ data-start="${r.start ? Date.parse(r.start) : 0}"
  data-cost="${r.cost}" data-agents="${r.agents}" data-calls="${r.apiCalls ?? 0}"
  ${METRICS.map(([m]) => `data-${m}="${tk[m]}" data-${m}usd="${tc[m]}"`).join(" ")}
  data-text="${esc(text)}">` +
@@ -278,6 +410,10 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
  <label><input id=liveonly type=checkbox> live only</label>
  <label><input id=usemin type=checkbox> min $
   <input id=mincost type=number step=0.05 min=0 value=0.5 disabled></label>
+ <span class=rng>${[["1", "24h"], ["7", "7d"], ["30", "30d"], ["90", "90d"],
+   ["365", "1y"], ["0", "all"]].map(([v, l]) =>
+   `<button class=rbtn data-r="${v}">${l}</button>`).join("")}</span>
+ <label class=dates>from <input id=from type=date> to <input id=to type=date></label>
 </div>
 <div id=twrap><table class="tt" id=tt><thead><tr>${head}</tr></thead><tbody>${tr}</tbody></table></div>
 <script>
@@ -285,7 +421,9 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
  var START=${START_COL}, qs=new URLSearchParams(location.search);
  var sortCol=qs.get('c')!==null?+qs.get('c'):START, sortDir=qs.get('d')==='asc'?1:-1;
  var FILTERS=[['q','q',''],['proj','p',''],['fmodel','m',''],
-              ['liveonly','live',false],['usemin','min',false],['mincost','minv','0.5']];
+              ['liveonly','live',false],['usemin','min',false],['mincost','minv','0.5'],
+              ['from','from',''],['to','to','']];
+ var range=qs.get('r')!==null?+qs.get('r'):30;   // days; 0 = no limit
  var METRICS=['in','out','cr','cw'];
  var tb,rows;
  var kTok=function(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(0)+'k':String(n)};
@@ -305,13 +443,18 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   var lo=$('liveonly').checked, um=$('usemin').checked;
   var mc=um?(parseFloat($('mincost').value)||0):0;
   $('mincost').disabled=!um;
+  var f=$('from').value, tt=$('to').value;
+  var lo_t=f?Date.parse(f):(range?Date.now()-range*864e5:0);
+  var hi_t=tt?Date.parse(tt)+864e5:Infinity;
+  [].forEach.call(document.querySelectorAll('.rbtn'),function(b){
+   b.classList.toggle('on',!f&&!tt&&+b.dataset.r===range); });
   rows.sort(cmp);
   var vis=[], cost=0, agents=0, calls=0, tok={}, tc={};
   METRICS.forEach(function(m){tok[m]=0;tc[m]=0});
   rows.forEach(function(r){
    var d=r.dataset;
    var ok=(+d.cost>=mc)&&(!pr||d.project===pr)&&(!md||d.model===md)&&(!lo||d.live==='1')
-     &&(!q||d.text.indexOf(q)>-1);
+     &&(+d.start>=lo_t)&&(+d.start<=hi_t)&&(!q||d.text.indexOf(q)>-1);
    r.style.display=ok?'':'none';
    tb.appendChild(r);
    if(!ok)return;
@@ -327,7 +470,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   METRICS.forEach(function(m){$('k-'+m).textContent=kTok(tok[m]); $('k-'+m+'usd').textContent=usd(tc[m]);});
   [].forEach.call(document.querySelectorAll('#tt th[data-c]'),function(th){
    var on=+th.dataset.c===sortCol;
-   th.className=th.className.replace(/ on\b/,'')+(on?' on':'');
+   th.classList.toggle('on',on);
    th.querySelector('.arr').textContent=on?(sortDir<0?'▼':'▲'):'⇅';
   });
  }
@@ -342,6 +485,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
    if(String(v)===String(dflt)||v==='')u.searchParams.delete(f[1]);
    else u.searchParams.set(f[1],e.type==='checkbox'?'1':v);
   });
+  range===30?u.searchParams.delete('r'):u.searchParams.set('r',range);
   history.replaceState(null,'',u);
  }
  document.addEventListener('click',function(e){
@@ -350,7 +494,11 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   if(c===sortCol)sortDir=-sortDir; else {sortCol=c;sortDir=th.dataset.n==='1'?-1:1;}
   apply(); save();
  });
- ['q','proj','fmodel','liveonly','usemin','mincost'].forEach(function(id){
+ [].forEach.call(document.querySelectorAll('.rbtn'),function(b){
+  b.onclick=function(){ range=+b.dataset.r; $('from').value=''; $('to').value='';
+   apply(); save(); };
+ });
+ ['q','proj','fmodel','liveonly','usemin','mincost','from','to'].forEach(function(id){
   var e=$(id);
   var h=function(){apply(); save();};
   e.addEventListener('input',h); e.addEventListener('change',h);});
@@ -400,6 +548,7 @@ export function treeHTML(tree, opts = {}) {
   const isLive = n => !!n.end && now - new Date(n.end).getTime() < LIVE_MS;
   const shortDate = s => s ? s.slice(5, 16).replace("T", " ") : "";
   const models = new Set();
+  const agentNames = new Set();
 
   // header: [label, sortable, numeric, extra class]
   const COLS = [
@@ -418,6 +567,7 @@ export function treeHTML(tree, opts = {}) {
     const share = n.__share || 0;
     const model = shortModel(n.model);
     n.model.forEach(m => models.add(m));
+    if (depth) agentNames.add(n.agent);
     const conf = n.cost.confidence === "computed" ? `<span class=conf-computed>± </span>` :
                  n.cost.confidence === "reported" ? `<span class=conf-reported>rep </span>` : "";
     const chips = (n.phase != null ? `<span class=chip>${esc(n.phase)}${n.round != null ? " r" + esc(n.round) : ""}</span>` : "")
@@ -471,6 +621,21 @@ export function treeHTML(tree, opts = {}) {
   }
   const body = render(tree, 0, null, true);
 
+  const flat = [];
+  (function walk(n, depth, parent) {
+    const a = agg.get(n);
+    flat.push({ k: keyOf(n), p: parent, d: depth, a: n.agent,
+      t: n.description || "", s: n.start ? Date.parse(n.start) : null,
+      e: n.end ? Date.parse(n.end) : null, c: n.cost.total, o: n.cost.own,
+      n: n.apiCalls, m: shortModel(n.model), ef: n.effort.join(",") || "",
+      tk: [a.own.t.in, a.own.t.out, a.own.t.cr, a.own.t.cw],
+      dl: [a.own.d.in, a.own.d.out, a.own.d.cr, a.own.d.cw],
+      TK: [a.tot.t.in, a.tot.t.out, a.tot.t.cr, a.tot.t.cw],
+      DL: [a.tot.d.in, a.tot.d.out, a.tot.d.cr, a.tot.d.cw],
+      cli: n.via === "cli" ? 1 : 0 });
+    for (const c of n.children) walk(c, depth + 1, keyOf(n));
+  })(tree, 0, null);
+
   const t = tree, R = agg.get(tree), ws = opts.workspace || { label: "", cwd: "", branch: t.branch };
   const nAgents = (function cnt(n) { return n.children.reduce((a, c) => a + 1 + cnt(c), 0); })(t);
   const d = opts.describe || null;
@@ -509,18 +674,27 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  <div class=tile><span class=lbl>Model</span><b>${esc(shortModel(t.model.slice(0, 1)))}</b>
   <span class=sub>${esc(t.effort.join(",") || "—")}</span></div>
 </div>
-<div class=toolbar>
+<div class=tabs>
+ <button class=tab data-v=flow>Flow</button
+ ><button class=tab data-v=trace>Trace</button
+ ><button class=tab data-v=costs>Costs</button>
+</div>
+<div class=toolbar id=tb>
  <input id=q placeholder="search agent, task, skill, model…" size=30>
+ ${combo("fagent", "all agents", [...agentNames].sort(), "12em")}
  ${combo("fmodel", "all models", [...models].sort().map(m =>
    [m, m.replace("claude-", "").replace("-20251001", "")]), "11em")}
- <span class=legend id=leg style="margin-left:auto">collapsed = subtree total · expanded = this agent only</span></div>
-<div id=twrap>
-<table class="tt" id=tt><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+ <span class=legend id=leg style="margin-left:auto"></span></div>
+<div id=v-costs class=view><div id=twrap>
+<table class="tt" id=tt><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div></div>
+<div id=v-trace class="view card"><div id=trace></div></div>
+<div id=v-flow class="view card"><div id=flow></div></div>
+<script type="application/json" id=nodes>${JSON.stringify(flat).replace(/</g, "\\u003c")}</script>
 <script>
 (function(){
  var REFRESH=${refresh}, START=${START_COL}, qs=new URLSearchParams(location.search);
  var sortCol=qs.get('c')!==null?+qs.get('c'):START, sortDir=qs.get('d')==='desc'?-1:1;
- var FILTERS=[['q','q'],['fmodel','m']];
+ var FILTERS=[['q','q'],['fmodel','m'],['fagent','a']];
  var rows,byKey;
  var kTok=function(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(0)+'k':String(n)};
  var usd=function(n){return n>0&&n<0.01?'$'+n.toFixed(4):'$'+n.toFixed(2)};
@@ -545,7 +719,7 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   });
   [].forEach.call(document.querySelectorAll('#twrap th[data-c]'),function(th){
    var on=+th.dataset.c===sortCol;
-   th.className=th.className.replace(/ on\b/,'')+(on?' on':'');
+   th.classList.toggle('on',on);
    th.querySelector('.arr').textContent=on?(sortDir<0?'▼':'▲'):'⇅';
   });
  }
@@ -598,14 +772,240 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   var r=td.closest('tr'); if(r.dataset.leaf==='1')return;
   r.dataset.open=r.dataset.open==='1'?'0':'1'; paint();
  });
- ['q','fmodel'].forEach(function(id){var e=document.getElementById(id);
-  var h=function(){paint(); save();};
+ ['q','fmodel','fagent'].forEach(function(id){var e=document.getElementById(id);
+  var h=function(){ paint(); save();
+   if(view==='trace')drawTrace(); else if(view==='flow')drawFlow(); };
   e.addEventListener('input',h); e.addEventListener('change',h);});
  FILTERS.forEach(function(f){                  // restore from the URL before first paint
   var v=qs.get(f[1]); if(v!==null)document.getElementById(f[0]).value=v;
  });
  ${COMBO_JS}
+ // ---- alternative views: a trace timeline and a flow graph ----
+ var NODES=JSON.parse(document.getElementById('nodes').textContent);
+ var BYK={}, KIDS={};
+ NODES.forEach(function(n){ BYK[n.k]=n; (KIDS[n.p||'']=KIDS[n.p||'']||[]).push(n); });
+ var ROOT=NODES[0], T0=ROOT.s, SPAN=Math.max((ROOT.e||0)-(ROOT.s||0),1);
+ // visible window; a session is mostly dead time, so the axis is zoomable
+ var TA=T0, TB=T0+SPAN;
+ var vopen={}; vopen[ROOT.k]=1;                 // same default as the table: only the root
+ var v0=qs.get('view'); var view=(v0==='trace'||v0==='costs')?v0:'flow';
+ function kidsOf(n){ return KIDS[n.k]||[]; }
+ function shown(n){ var p=n.p; while(p){ if(!vopen[p])return false; p=BYK[p]?BYK[p].p:null; } return true; }
+ function filtering(){
+  return !!(document.getElementById('q').value.trim()||
+            document.getElementById('fmodel').value||document.getElementById('fagent').value);
+ }
+ function passes(n){
+  var q=document.getElementById('q').value.trim().toLowerCase();
+  var m=document.getElementById('fmodel').value, a=document.getElementById('fagent').value;
+  if(a&&n.a!==a)return false;
+  if(m&&n.m.indexOf(m.replace('claude-','').replace('-20251001',''))<0)return false;
+  if(q&&(n.a+' '+n.t+' '+n.m+' '+n.ef).toLowerCase().indexOf(q)<0)return false;
+  return true;
+ }
+ function dur(ms){ var s=Math.round(ms/1000);
+  return s>=3600?(s/3600).toFixed(1)+'h':s>=60?Math.round(s/60)+'m':s+'s'; }
+ function tip(n){ return n.a+(n.t?' — '+n.t:'')+'\\n'+n.m+' · '+dur((n.e-n.s))+' · '+n.n+
+  ' calls · out '+kTok(n.tk[1])+' · '+usd(n.c)+(kidsOf(n).length?' (own '+usd(n.o)+')':''); }
+ var D=function(ms){ return new Date(ms); };
+ var hhmm=function(ms){ var d=D(ms);
+  return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+ var day=function(ms){ var d=D(ms);
+  return d.toLocaleDateString(undefined,{day:'numeric',month:'short'}); };
+ function when(a,b){
+  var sameDay=D(a).toDateString()===D(b).toDateString();
+  return (sameDay?day(a)+' '+hhmm(a):day(a)+' '+hhmm(a))+' → '+(sameDay?hhmm(b):day(b)+' '+hhmm(b));
+ }
+ var TOKL=['IN','OUT','CR','CW'], TOKS=['IN','OUT','CR','CW'];
+ // compact one-liner for stage headers, where the stacked grid was too loud
+ function inline(tk,dl){
+  return '<span class=fw-line>'+TOKS.map(function(l,i){
+   return '<span'+(tk[i]?'':' class=zero')+'>'+esc(l)+' <b>'+(tk[i]?kTok(tk[i]):'·')+'</b>'+
+    (tk[i]?' <u>'+usd(dl[i])+'</u>':'')+'</span>'; }).join('')+'</span>';
+ }
+ function breakdown(tk,dl,cls){
+  return '<div class="'+cls+'">'+TOKL.map(function(l,i){
+   return '<span'+(tk[i]?'':' class=zero')+'><i>'+esc(l)+'</i><b>'+(tk[i]?kTok(tk[i]):'·')+
+    '</b><u>'+(tk[i]?usd(dl[i]):'')+'</u></span>'; }).join('')+'</div>';
+ }
+ function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+ function drawTrace(){
+  var out=[], ticks=[], win=Math.max(TB-TA,1), zoomed=(TB-TA)<SPAN-1;
+  for(var i=0;i<=5;i++) ticks.push('<span style="left:'+(i*20)+'%">'+dur(TA-T0+win*i/5)+'</span>');
+  out.push('<div class=tl-axis><div class=tl-name>'+
+   (zoomed?'<button id=tl-reset>reset zoom</button>':'<span class=dim>drag to zoom</span>')+
+   '</div><div class=tl-track>'+ticks.join('')+'</div></div>');
+  NODES.forEach(function(n){
+   if(!shown(n)||(n.p&&!passes(n)))return;
+   if(n.e<TA||n.s>TB)return;                   // outside the window entirely
+   var kids=kidsOf(n).length;
+   var l=(Math.max(n.s,TA)-TA)/win*100, w=Math.max((Math.min(n.e,TB)-Math.max(n.s,TA))/win*100,0.3);
+   var lbl=dur(n.e-n.s)+' · '+usd(n.c);
+   out.push('<div class="tl-row'+(kids?' has':'')+'" data-k="'+esc(n.k)+'" title="'+esc(tip(n))+'">'+
+    '<div class=tl-name style="padding-left:'+(0.4+n.d*0.9)+'em">'+
+     '<span class="tw'+(kids?'':' leaf')+'"></span>'+
+     (n.cli?'<span class="badge cli">CLI</span>':'')+
+     '<span class=a>'+esc(n.a)+'</span>'+(kids?'<span class=sh>'+kids+'</span>':'')+'</div>'+
+    '<div class=tl-track><div class=tl-bar style="left:'+l.toFixed(3)+'%;width:'+w.toFixed(3)+
+      '%;background:var(--dep'+Math.min(n.d,3)+')"></div>'+
+     '<span class=tl-lbl style="left:'+Math.min(l+w+0.4,88).toFixed(3)+'%">'+esc(lbl)+'</span></div></div>');
+  });
+  out.push('<div id=tl-sel></div>');
+  document.getElementById('trace').innerHTML=out.join('');
+  var rst=document.getElementById('tl-reset');
+  if(rst)rst.onclick=function(e){ e.stopPropagation(); TA=T0; TB=T0+SPAN; drawTrace(); };
+  wireZoom();
+ }
+
+ // drag across the tracks to zoom into a window, the way a trace viewer does
+ function wireZoom(){
+  var host=document.getElementById('trace'), sel=document.getElementById('tl-sel');
+  var track=host.querySelector('.tl-axis .tl-track'); if(!track)return;
+  var down=null;
+  var at=function(ev){ var r=track.getBoundingClientRect();
+   return Math.min(Math.max((ev.clientX-r.left)/r.width,0),1); };
+  host.addEventListener('mousedown',function(e){
+   if(e.target.closest('.tl-name'))return;     // names stay clickable for folding
+   down=at(e); sel.style.display='block'; e.preventDefault();
+  });
+  window.addEventListener('mousemove',function(e){
+   if(down===null)return;
+   var a=Math.min(down,at(e)), b=Math.max(down,at(e)), r=track.getBoundingClientRect();
+   var h=host.getBoundingClientRect();
+   sel.style.left=(r.left-h.left+a*r.width)+'px';
+   sel.style.width=((b-a)*r.width)+'px';
+  });
+  window.addEventListener('mouseup',function(e){
+   if(down===null)return;
+   var a=Math.min(down,at(e)), b=Math.max(down,at(e));
+   down=null; sel.style.display='none';
+   if(b-a<0.005)return;                        // a click, not a drag
+   var win=TB-TA;
+   TB=TA+win*b; TA=TA+win*a;
+   drawTrace();
+  });
+ }
+
+ // Flow reads as time, not as dependency: at each level the agents are grouped
+ // into waves — a wave is a run of agents whose intervals overlap, so it is
+ // literally "these ran at the same time" — and waves follow each other in
+ // order with the idle gap between them made explicit. An agent that spawned
+ // its own subagents opens into the very same layout one level down, which is
+ // what makes the parent/child relation structural rather than a label.
+ var fopen={};
+ function wavesOf(parentKey){
+  var pool=(parentKey===ROOT.k&&filtering())
+   ? NODES.slice(1) : (KIDS[parentKey]||[]);
+  var ags=pool.filter(function(n){return n.s!=null&&n.e!=null&&passes(n);})
+                                   .slice().sort(function(a,b){return a.s-b.s;});
+  var out=[], cur=null, until=0;
+  ags.forEach(function(n){
+   if(!cur||n.s>until){ cur=[]; out.push(cur); until=n.e; }
+   else until=Math.max(until,n.e);
+   cur.push(n);
+  });
+  return out;
+ }
+ function subtreeOf(w){ var c=0; w.forEach(function(n){ c+=subtreeCount(n); }); return c; }
+ function subtreeCount(n){
+  var c=0; (function w(x){ kidsOf(x).forEach(function(k){ c++; w(k); }); })(n); return c;
+ }
+ function card(n){
+  var sub=kidsOf(n).length, open=!!fopen[n.k]&&!filtering();
+  return '<div class="fw-box'+(sub?' has':'')+(open?' open':'')+'" data-k="'+esc(n.k)+'"'+
+   ' title="'+esc(tip(n))+'">'+
+   '<div class=fw-name>'+(n.cli?'<span class="badge cli">CLI</span>':'')+
+    '<span class=a>'+esc(n.a)+'</span><span class=fw-cost>'+usd(n.o)+'</span></div>'+
+   '<div class=fw-task>'+esc(n.t||'—')+'</div>'+
+   '<div class=fw-meta><span class=fw-model>'+esc(n.m)+
+    (n.ef?'<em>'+esc(n.ef)+'</em>':'')+'</span>'+
+    '<span>'+dur(n.e-n.s)+'</span><span>'+n.n+' calls</span></div>'+
+   '<div class=fw-clock>'+when(n.s,n.e)+'</div>'+
+   breakdown(n.tk,n.dl,'fw-bd box')+
+   (sub?'<div class=fw-subs><div class=fw-open>'+(open?'▾':'▸')+' '+sub+' subagent'+
+     (sub>1?'s':'')+'<b>'+usd(n.c-n.o)+'</b></div>'+
+     breakdown(n.TK.map(function(v,i){return v-n.tk[i];}),
+               n.DL.map(function(v,i){return v-n.dl[i];}),'fw-bd')+'</div>':'')+'</div>';
+ }
+ // one level of the flow: its waves, and inline under each open parent, its own
+ function level(parentKey,depth){
+  var ws=wavesOf(parentKey), out=[], prevEnd=null;
+  ws.forEach(function(w,i){
+   var s=Math.min.apply(null,w.map(function(n){return n.s;}));
+   var e=Math.max.apply(null,w.map(function(n){return n.e;}));
+   if(prevEnd!==null) out.push('<div class=fw-gap><span>'+dur(s-prevEnd)+' idle</span></div>');
+   prevEnd=e;
+   var flat=filtering(), cost=0, tk=[0,0,0,0], dl=[0,0,0,0];
+   w.forEach(function(n){ cost+=flat?n.o:n.c;
+    for(var j=0;j<4;j++){ tk[j]+=flat?n.tk[j]:n.TK[j]; dl[j]+=flat?n.dl[j]:n.DL[j]; } });
+   out.push('<div class=fw-stage><div class=fw-head>'+
+    '<b>'+(i+1)+'</b><span class=fw-t>'+dur(e-s)+'</span>'+
+    '<span class=fw-when>'+when(s,e)+'</span>'+
+    '<span class=fw-n>'+w.length+(w.length>1?' in parallel':' agent')+
+     (subtreeOf(w)?' <em>+'+subtreeOf(w)+' nested</em>':'')+'</span>'+
+    inline(tk,dl)+
+    '<span class=fw-c>'+usd(cost)+'</span></div><div class=fw-boxes>'+
+    w.map(function(n){
+     return card(n)+(fopen[n.k]&&!filtering()
+      ? '<div class=fw-nest><div class=fw-nesthead>subagents of <b>'+esc(n.a)+
+        '</b><span>'+subtreeCount(n)+' in total</span><b class=fw-nestc>'+usd(n.c-n.o)+
+        '</b></div>'+level(n.k,depth+1)+'</div>' : '');
+    }).join('')+'</div></div>');
+  });
+  return out.join('');
+ }
+ function drawFlow(){
+  var ws=wavesOf(ROOT.k), out=[], agents=NODES.length-1;
+  out.push('<div class="fw-stage fw-main"><div class=fw-head>'+
+   '<span class=fw-title>'+esc(ROOT.a)+'</span>'+
+   '<span class=fw-n>'+(ws.length?'orchestration':'session')+'</span>'+
+   '<span class=fw-when>'+when(ROOT.s,ROOT.e)+'</span>'+
+   '<span class=fw-t>'+dur(ROOT.e-ROOT.s)+'</span>'+
+   inline(ROOT.tk,ROOT.dl)+
+   '<span class=fw-c>'+usd(ROOT.o)+'</span></div>'+
+   '<div class=fw-mainsub>'+esc(ROOT.m)+(ROOT.ef?' '+esc(ROOT.ef):'')+' · '+ROOT.n+' calls'+
+    (ws.length?' — runs from start to finish; this is what it spent itself, '+
+     'launching the stages below and handling what came back':'')+'</div></div>');
+  if(!ws.length){ out.push('<p class=dim style="padding:.8em .2em">No subagents in this session.</p>');
+   document.getElementById('flow').innerHTML=out.join(''); return; }
+  out.push('<div class=fw-divider><span>'+agents+' subagent'+(agents>1?'s':'')+
+   ', '+ws.length+' stage'+(ws.length>1?'s':'')+' at the top level</span></div>');
+  out.push(level(ROOT.k,1));
+  var top=0; (KIDS[ROOT.k]||[]).forEach(function(n){ top+=n.c; });
+  out.push('<div class=fw-total><span>'+agents+' agents</span>'+
+   '<span class=fw-sum>'+usd(ROOT.o)+' <i>main</i> + '+usd(top)+' <i>agents</i> = <b>'+
+   usd(ROOT.o+top)+'</b></span></div>');
+  document.getElementById('flow').innerHTML=out.join('');
+ }
+ function setView(v){
+  view=v;
+  ['costs','trace','flow'].forEach(function(x){
+   document.getElementById('v-'+x).classList.toggle('on',x===v); });
+  [].forEach.call(document.querySelectorAll('.tab'),function(b){
+   b.classList.toggle('on',b.dataset.v===v); });
+  document.getElementById('leg').textContent=v==='costs'
+   ? 'collapsed = subtree total · expanded = this agent only'
+   : (v==='trace'?'drag across the tracks to zoom':'click an agent to open its subagents');
+  if(v==='trace')drawTrace(); if(v==='flow')drawFlow();
+  var u=new URL(location.href);
+  v==='flow'?u.searchParams.delete('view'):u.searchParams.set('view',v);
+  history.replaceState(null,'',u);
+ }
+ [].forEach.call(document.querySelectorAll('.tab'),function(b){
+  b.onclick=function(){ setView(b.dataset.v); }; });
+ document.addEventListener('click',function(e){
+  if(!e.target.closest)return;
+  var r=e.target.closest('.tl-row.has');
+  if(r){ var k=r.dataset.k; vopen[k]?delete vopen[k]:vopen[k]=1; drawTrace(); return; }
+  if(view!=='flow')return;
+  var b=e.target.closest('.fw-box.has'); if(!b)return;
+  var k=b.dataset.k; fopen[k]?delete fopen[k]:fopen[k]=1;
+  drawFlow();
+ });
  index(); order(); paint();
+ setView(view);
  // Live sessions refresh in place: swap the table, then put back what the user
  // had — open nodes, sort, filters and scroll position.
  function tick(){
@@ -614,6 +1014,15 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
    var doc=new DOMParser().parseFromString(h,'text/html');
    var nt=doc.querySelector('#tt'),nd=doc.querySelector('.dash'),nh=doc.querySelector('.head');
    if(!nt)return;
+   var nn=doc.getElementById('nodes');
+   if(nn){ NODES=JSON.parse(nn.textContent); BYK={}; KIDS={};
+    NODES.forEach(function(n){ BYK[n.k]=n; (KIDS[n.p||'']=KIDS[n.p||'']||[]).push(n); });
+    ROOT=NODES[0];
+    var nspan=Math.max((ROOT.e||0)-(ROOT.s||0),1);
+    if(TB>=T0+SPAN){ TB=ROOT.s+nspan; }        // keep the window pinned to "now" unless zoomed
+    T0=ROOT.s; SPAN=nspan;
+    if(view==='trace')drawTrace(); else if(view==='flow')drawFlow();
+   }
    var open={},y=window.scrollY;
    rows.forEach(function(r){if(r.dataset.open==='1')open[r.dataset.key]=1});
    document.getElementById('tt').replaceWith(nt);
