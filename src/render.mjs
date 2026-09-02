@@ -574,8 +574,8 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
  ${combo("fmodel", "all models", models.map(m =>
    [m, m.replace("claude-", "").replace("-20251001", "")]), "11em")}
  <label><input id=liveonly type=checkbox> live only</label>
- <label><input id=usemin type=checkbox> min $
-  <input id=mincost type=number step=0.05 min=0 value=0.5 disabled></label>
+ <label><input id=usemin type=checkbox checked> min $
+  <input id=mincost type=number step=0.05 min=0 value=0.5></label>
  <span class=rng>${[["1", "24h"], ["7", "7d"], ["30", "30d"], ["90", "90d"],
    ["365", "1y"], ["0", "all"]].map(([v, l]) =>
    `<button class=rbtn data-r="${v}">${l}</button>`).join("")}</span>
@@ -591,7 +591,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
  var START=${START_COL}, qs=new URLSearchParams(location.search);
  var sortCol=qs.get('c')!==null?+qs.get('c'):START, sortDir=qs.get('d')==='asc'?1:-1;
  var FILTERS=[['q','q',''],['proj','p',''],['fmodel','m',''],
-              ['liveonly','live',false],['usemin','min',false],['mincost','minv','0.5'],
+              ['liveonly','live',false],['usemin','min',true],['mincost','minv','0.5'],
               ['from','from',''],['to','to','']];
  var range=qs.get('r')!==null?+qs.get('r'):30;   // days; 0 = no limit
  var METRICS=['in','out','cr','cw'];
@@ -733,7 +733,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
    var v=e.type==='checkbox'?e.checked:e.value;
    var dflt=f[2];
    if(String(v)===String(dflt)||v==='')u.searchParams.delete(f[1]);
-   else u.searchParams.set(f[1],e.type==='checkbox'?'1':v);
+   else u.searchParams.set(f[1],e.type==='checkbox'?(v?'1':'0'):v);
   });
   range===30?u.searchParams.delete('r'):u.searchParams.set('r',range);
   history.replaceState(null,'',u);
