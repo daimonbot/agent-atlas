@@ -8,6 +8,12 @@ export const fmtDur = s => s == null ? "" :
 const kTok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "k" : String(n);
 const shortModel = ms => ms.map(m => m.replace("claude-", "").replace("-20251001", "")).join("+") || "—";
 
+// The human-messages disclosure. One constant, three surfaces: the session tile,
+// the index column header and the index breakdown pill. It deliberately contains
+// no character esc() rewrites and no backslash, so the same bytes are safe in a
+// title attribute, in this file's template literals and inside an inline script.
+const HM_TIP = "human messages: turns in the root transcript of this session that look human-typed. Not counted: task-notification wake-ups, harness and meta records, launcher-injected paseo-system notes, and standalone interruptions — stopping a run does not itself count, though a turn you typed and then interrupted counts once. Subagents never contribute. Heuristic, not fact: nothing else on disk separates a scheduler-fired or agent-fired prompt from one you typed, so those count too.";
+
 /** A filterable picker. The real value lives in a hidden input keyed by `id`,
  *  so callers listen for change on `id` exactly as they did with a <select>. */
 const combo = (id, placeholder, opts, width = "15em") =>
@@ -96,7 +102,8 @@ const BD_JS = `
  });
  function bdSeg(id,items,cur){
   return '<span class=seg>'+items.map(function(it){
-   return '<button data-'+id+'="'+it[0]+'"'+(it[0]===cur?' class=on':'')+'>'+it[1]+'</button>';
+   return '<button data-'+id+'="'+it[0]+'"'+(it[0]===cur?' class=on':'')+
+    (it[2]?' title="'+it[2]+'"':'')+'>'+it[1]+'</button>';
   }).join('')+'</span>';
  }`;
 
@@ -504,12 +511,14 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   const COLS = [
     ["status", 1, 0, "l"], ["session", 1, 0, "l"], ["project", 1, 0, "l"],
     ["started", 1, 0, "l"], ["dur", 1, 1, "r"], ["agent time", 1, 1, "r"],
-    ["agents", 1, 1, "r"], ["calls", 1, 1, "r"],
+    ["agents", 1, 1, "r"], ["calls", 1, 1, "r"], ["human messages", 1, 1, "r", HM_TIP],
     ...METRICS.map(([, l]) => [l, 1, 1, "r"]), ["cost", 1, 1, "r"],
   ];
   const START_COL = 3;
-  const head = COLS.map(([label, sortable, numeric, cls], i) =>
-    `<th class="${cls}${sortable ? " s" : ""}"${sortable ? ` data-c="${i}" data-n="${numeric}"` : ""}>` +
+  // a COLS entry may carry an optional 5th element, a tooltip; only then is a title emitted
+  const head = COLS.map(([label, sortable, numeric, cls, tip], i) =>
+    `<th class="${cls}${sortable ? " s" : ""}"${sortable ? ` data-c="${i}" data-n="${numeric}"` : ""}${
+      tip ? ` title="${esc(tip)}"` : ""}>` +
     `${esc(label)}${sortable ? `<span class=arr></span>` : ""}</th>`).join("");
 
   const sum = { cost: 0, agents: 0, calls: 0, ams: 0, t: { in: 0, out: 0, cr: 0, cw: 0 },
@@ -532,6 +541,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
     return `<tr data-live="${r.live ? 1 : 0}" data-project="${esc(ws(r).label)}" data-model="${esc(r.model || "")}"
  data-start="${r.start ? Date.parse(r.start) : 0}" data-dur="${r.durationS ?? 0}" data-ams="${r.agentMs ?? 0}" data-id="${esc(r.id)}"
  data-cost="${r.cost}" data-agents="${r.agents}" data-calls="${r.apiCalls ?? 0}"
+ data-hm="${r.humanMsgs}" data-hmcost="${r.costPerHumanMsg ?? ""}" data-hmcalls="${r.callsPerHumanMsg ?? ""}"
  ${METRICS.map(([m]) => `data-${m}="${tk[m]}" data-${m}usd="${tc[m]}"`).join(" ")}
  data-text="${esc(text)}">` +
       `<td class=l data-v="${r.live ? 1 : 0}">${r.live ? '<span class="badge live">LIVE</span>'
@@ -547,6 +557,8 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
       `<td class="r dim" data-v="${r.agentMs ?? 0}">${r.agentMs ? fmtDur(Math.round(r.agentMs / 1000)) : "<span class=zero>·</span>"}</td>` +
       `<td class="r dim" data-v="${r.agents}">${r.agents}</td>` +
       `<td class="r dim" data-v="${r.apiCalls ?? 0}">${num(r.apiCalls)}</td>` +
+      `<td class="r dim" data-v="${r.humanMsgs}">${num(r.humanMsgs)}${
+        r.costPerHumanMsg !== null ? `<span class=usd>${usd(r.costPerHumanMsg)}/msg</span>` : ""}</td>` +
       METRICS.map(([m]) => `<td class="r${tk[m] ? "" : " zero"}" data-v="${tk[m]}">` +
         `${tk[m] ? `${kTok(tk[m])}<span class=usd>${usd(tc[m])}</span>` : "·"}</td>`).join("") +
       `<td class="r money" data-v="${r.cost}">${usd(r.cost)}</td></tr>`;
@@ -597,6 +609,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
  var METRICS=['in','out','cr','cw'];
  var BMET=[['cost','cost'],['out','out'],['cr','cache read'],['cw','cache write'],
            ['in','in'],['n','sessions'],['agents','agents'],['calls','calls'],
+           ['hm','human messages',${JSON.stringify(HM_TIP)}],
            ['dur','wall time'],['ams','agent time']];
  var bdGroup=({model:1,agent:1})[qs.get('by')]?qs.get('by'):'project';
  var bdMetric=qs.get('by2')||'cost', bdAll=false;
@@ -606,13 +619,14 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   if(k==='n')return 1;
   if(k==='agents')return +d.agents;
   if(k==='calls')return +d.calls;
+  if(k==='hm')return +d.hm;
   if(k==='dur')return (+d.dur)*1000;
   if(k==='ams')return +d.ams;
   return +d[k];
  }
  function bFmt(v,k){
   if(k==='cost')return usd(v);
-  if(k==='n'||k==='agents'||k==='calls')return Math.round(v).toLocaleString('en');
+  if(k==='n'||k==='agents'||k==='calls'||k==='hm')return Math.round(v).toLocaleString('en');
   if(k==='dur'||k==='ams')return v>=3600000?(v/3600000).toFixed(1)+'h':Math.round(v/60000)+'m';
   return kTok(v);
  }
@@ -640,7 +654,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
      if(!by[name]){ by[name]={k:name,c:0,v:0,d:[0,0,0,0]}; order.push(name); }
      var g=by[name]; g.c+=a.c;
      g.v+=bdMetric==='cost'?a.o:bdMetric==='n'||bdMetric==='agents'?a.c
-        :bdMetric==='calls'?0:bdMetric==='ams'?a.ms:bdMetric==='dur'?a.ms
+        :bdMetric==='calls'||bdMetric==='hm'?0:bdMetric==='ams'?a.ms:bdMetric==='dur'?a.ms
         :a.t[METRICS.indexOf(bdMetric)];
      for(var j=0;j<4;j++)g.d[j]+=a.d[j];
     }
@@ -925,6 +939,9 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  <div class=tile title="wall clock summed per subagent; they overlap, so this can exceed the session">
   <span class=lbl>Agent time</span><b>${fmtDur(Math.round(aMs / 1000))}</b>
   <span class=sub>${t.durationS ? "×" + (aMs / 1000 / t.durationS).toFixed(1) + " of the session" : "—"}</span></div>
+ <div class=tile title="${esc(HM_TIP)}"><span class=lbl>Human messages</span><b>${num(t.humanMsgs)}</b>
+  <span class=sub>${t.costPerHumanMsg !== null
+   ? `${usd(t.costPerHumanMsg)}/msg · ${t.callsPerHumanMsg.toFixed(1)} calls/msg` : "—"}</span></div>
  <div class=tile><span class=lbl>Model</span><b>${esc(shortModel(t.model.slice(0, 1)))}</b>
   <span class=sub>${esc(t.effort.join(",") || "—")}</span></div>
 </div>
