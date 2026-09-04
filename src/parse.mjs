@@ -18,6 +18,11 @@ const SYNTHETIC = "<synthetic>";
 // transcript as <command-message>…</command-message> and a human did type it.
 const NOT_HUMAN = ["<paseo-system", "<local-command-stdout", "[Request interrupted"];
 
+/** Text of a tool_result block (whose content is a string or its own blocks). */
+const resultText = b => (typeof b.content === "string" ? b.content
+  : Array.isArray(b.content) ? b.content.filter(x => x.type === "text").map(x => x.text).join(" ")
+  : "").trim();
+
 export class SessionFileParser {
   constructor(path) {
     this.path = path;
@@ -33,6 +38,8 @@ export class SessionFileParser {
     this.first = null; this.last = null;
     this.userMsgs = 0;
     this.humanTurns = new Set();       // promptIds credited to a human (see #line)
+    this.asked = new Map();            // AskUserQuestion tool_use id -> {ts, questions, done}
+    this.interactions = [];            // answered gates, question/answer pairs
     this.toolUseIds = new Set();       // tool_use ids seen (spawn attachment)
     this.firstPrompt = null;           // first real user prompt (session description)
     this.summary = null;               // harness-written summary record, if any
@@ -55,6 +62,7 @@ export class SessionFileParser {
       this.models.clear(); this.efforts.clear();
       this.first = this.last = null; this.userMsgs = 0;
       this.toolUseIds.clear(); this.humanTurns.clear(); this.identity = {};
+      this.asked.clear(); this.interactions = [];
       this.firstPrompt = null; this.summary = null;
       this.skills = []; this.branches = new Set();
       this.cwd = null; this.version = null; this.repo = null;
@@ -148,9 +156,18 @@ export class SessionFileParser {
           && !NOT_HUMAN.some(p => t0.startsWith(p)))
         this.humanTurns.add(o.promptId);
     }
+    // The answer to an AskUserQuestion gate arrives as a tool_result, which the
+    // text predicate above excludes by construction — yet it is the least
+    // ambiguous human input there is, so it credits its turn too.
+    if (o.type === "user" && Array.isArray(c))
+      for (const b of c) if (b.type === "tool_result" && this.asked.has(b.tool_use_id)) {
+        this.#answer(b, o.timestamp);
+        if (typeof o.promptId === "string" && o.promptId) this.humanTurns.add(o.promptId);
+      }
     if (Array.isArray(c))
       for (const b of c) if (b.type === "tool_use") {
         this.toolUseIds.add(b.id);
+        if (b.name === "AskUserQuestion") this.#ask(b, o.timestamp);
         const sk = b.name === "Skill" && b.input?.skill ? b.input.skill : null;
         if (sk) this.#skill(sk);
         this.uses.push({ uuid: o.uuid, name: b.name ? this.#intern(b.name) : null,
@@ -169,6 +186,32 @@ export class SessionFileParser {
       if (!prev || tot > prev.tot)
         this.seen.set(m.id, { tot, u, model: m.model, ts: o.timestamp, uuid: o.uuid });
     }
+  }
+
+  #ask(b, ts) {
+    if (this.asked.has(b.id)) return;         // a re-emitted line is the same gate
+    this.asked.set(b.id, { ts, questions: (b.input?.questions || []).map(q => ({
+      header: q.header ?? null,
+      question: String(q.question ?? "").replace(/\s+/g, " ").slice(0, 500),
+      multiSelect: !!q.multiSelect,
+      options: (q.options || []).map(o => o.label).filter(Boolean) })) });
+  }
+
+  /**
+   * Record an answered gate. The harness writes the answers back as prose
+   * ("question"="answer", one per question), so the parse is best-effort and
+   * the raw text is kept alongside it: a gate is never lost to a bad parse.
+   */
+  #answer(b, ts) {
+    const a = this.asked.get(b.tool_use_id);
+    if (a.done) return;                       // an id is answered exactly once
+    a.done = true;
+    const raw = resultText(b).replace(/\s+/g, " ");
+    this.interactions.push({
+      id: b.tool_use_id, ts: a.ts || ts, answeredAt: ts, questions: a.questions,
+      answers: [...raw.matchAll(/"[^"]*"="([^"]*)"/g)].map(m => m[1]),
+      answerText: raw.slice(0, 500),
+    });
   }
 
   #skill(name) { if (name && !this.skills.includes(name)) this.skills.push(name); }
@@ -310,6 +353,7 @@ export class SessionFileParser {
       durationS: this.first && this.last ? Math.round((new Date(this.last) - new Date(this.first)) / 1000) : null,
       apiCalls: this.seen.size, userMsgs: this.userMsgs,
       humanMsgs: this.humanTurns.size,
+      decisions: this.interactions.length, interactions: this.interactions,
       firstPrompt: this.firstPrompt, summary: this.summary,
       skills: [...this.skills], branch: [...this.branches][0] || null,
       cwd: this.cwd, version: this.version, repo: this.repo,

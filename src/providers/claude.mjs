@@ -168,6 +168,8 @@ export function buildTree(sessionPath, cache = new Map()) {
                  identity: {}, unknownModels: [], skills: [], branch: null,
                  cwd: null, version: null, repo: null }),
       humanMsgs: hm,
+      decisions: via === "root" && st ? (st.decisions || 0) : 0,
+      interactions: via === "root" && st ? (st.interactions || []) : [],
       costPerHumanMsg: hm ? +(total / hm).toFixed(4) : null,
       callsPerHumanMsg: hm ? +(calls / hm).toFixed(4) : null,
       ...("phase" in extra && extra.phase !== undefined ? { phase: extra.phase } : {}),

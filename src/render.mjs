@@ -1009,7 +1009,9 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   <span class=sub>${t.durationS ? "×" + (aMs / 1000 / t.durationS).toFixed(1) + " of the session" : "—"}</span></div>
  <div class=tile title="${esc(HM_TIP)}"><span class=lbl>Human messages</span><b>${num(t.humanMsgs)}</b>
   <span class=sub>${t.costPerHumanMsg !== null
-   ? `${usd(t.costPerHumanMsg)}/msg · ${t.callsPerHumanMsg.toFixed(1)} calls/msg` : "—"}</span></div>
+   ? `${usd(t.costPerHumanMsg)}/msg · ${t.callsPerHumanMsg.toFixed(1)} calls/msg` : "—"}</span>
+  ${t.decisions ? `<span class=sub title="answers to AskUserQuestion — the run stopped and waited for a person">${
+   t.decisions} decision${t.decisions === 1 ? "" : "s"}</span>` : ""}</div>
  <div class=tile><span class=lbl>Model</span><b>${esc(shortModel(t.model.slice(0, 1)))}</b>
   <span class=sub>${esc(t.effort.join(",") || "—")}</span></div>
 </div>
