@@ -518,9 +518,10 @@ table.tp .tp-w{color:var(--dim);margin-left:.45em}
 /* the feature's only entry point, in a row of quiet static spans: same UA reset
    and the same two signals — colour and weight — that .bd-more and .fw-open use.
    font:inherit is a shorthand and resets font-weight, so it comes first. */
-.fw-turns{background:none;border:none;padding:0;font:inherit;font-weight:650;
- color:var(--acc);cursor:pointer}
-.fw-turns:hover{text-decoration:underline}
+.fw-turns{background:var(--accbg);border:1px solid #c9dcf5;border-radius:5px;padding:0 .4em;
+ font:inherit;font-size:10.5px;font-weight:650;color:var(--acc);cursor:pointer;line-height:1.5}
+.fw-turns::before{content:"▤ ";font-size:9px}
+.fw-turns:hover{background:#dbe9fb;border-color:var(--acc)}
 .fw-turns:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}
 /* narrower viewports: tighten the two elastic columns and the gutters before
    falling back to the horizontal scroll #twrap still provides */
@@ -558,10 +559,11 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
       tip ? ` title="${esc(tip)}"` : ""}>` +
     `${esc(label)}${sortable ? `<span class=arr></span>` : ""}</th>`).join("");
 
-  const sum = { cost: 0, agents: 0, calls: 0, ams: 0, t: { in: 0, out: 0, cr: 0, cw: 0 },
+  const sum = { cost: 0, agents: 0, calls: 0, ams: 0, hm: 0, t: { in: 0, out: 0, cr: 0, cw: 0 },
                 d: { in: 0, out: 0, cr: 0, cw: 0 } };
   for (const r of rows) {
     sum.cost += r.cost; sum.agents += r.agents; sum.calls += r.apiCalls || 0; sum.ams += r.agentMs || 0;
+    sum.hm += r.humanMsgs || 0;
     for (const [m] of METRICS) { sum.t[m] += (r.tokens || {})[m] || 0;
                                  sum.d[m] += (r.tokenCost || {})[m] || 0; }
   }
@@ -610,6 +612,10 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   <span class=sub><span id=k-n>${rows.length}</span> sessions</span></div>
  <div class=tile><span class=lbl>Avg / session</span><b id=k-avg>${usd(rows.length ? sum.cost / rows.length : 0)}</b>
   <span class=sub>median <span id=k-med>${usd(median)}</span></span></div>
+ <div class=tile title="${esc(HM_TIP)}"><span class=lbl>Human messages</span>
+  <b id=k-hm>${num(sum.hm)}</b>
+  <span class=sub><span id=k-hmcost>${usd(sum.hm ? sum.cost / sum.hm : 0)}</span>/msg · <span
+   id=k-hmcalls>${sum.hm ? (sum.calls / sum.hm).toFixed(1) : "0.0"}</span> calls/msg</span></div>
  <div class=tile title="wall clock summed per subagent across the visible sessions">
   <span class=lbl>Agents</span><b id=k-agents>${num(sum.agents)}</b>
   <span class=sub><span id=k-calls>${num(sum.calls)}</span> API calls · <span id=k-ams>${
@@ -747,7 +753,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   [].forEach.call(document.querySelectorAll('.rbtn'),function(b){
    b.classList.toggle('on',!f&&!tt&&+b.dataset.r===range); });
   rows.sort(cmp);
-  var vis=[], shown=[], cost=0, agents=0, calls=0, ams=0, tok={}, tc={};
+  var vis=[], shown=[], cost=0, agents=0, calls=0, ams=0, hm=0, tok={}, tc={};
   METRICS.forEach(function(m){tok[m]=0;tc[m]=0});
   rows.forEach(function(r){
    var d=r.dataset;
@@ -757,7 +763,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
    tb.appendChild(r);
    if(!ok)return;
    shown.push(d);
-   vis.push(+d.cost); cost+=+d.cost; agents+=+d.agents; calls+=+d.calls; ams+=+d.ams;
+   vis.push(+d.cost); cost+=+d.cost; agents+=+d.agents; calls+=+d.calls; ams+=+d.ams; hm+=+d.hm;
    METRICS.forEach(function(m){tok[m]+=+d[m]; tc[m]+=+d[m+'usd'];});
   });
   drawBreakdown(shown);
@@ -768,6 +774,9 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   $('k-med').textContent=n?usd(vis[n>>1]):'—';
   $('k-agents').textContent=agents; $('k-calls').textContent=calls.toLocaleString('en');
   $('k-ams').textContent=ams>=3600000?(ams/3600000).toFixed(1)+'h':Math.round(ams/60000)+'m';
+  $('k-hm').textContent=hm.toLocaleString('en');
+  $('k-hmcost').textContent=hm?usd(cost/hm):'$0.00';
+  $('k-hmcalls').textContent=hm?(calls/hm).toFixed(1):'0.0';
   METRICS.forEach(function(m){$('k-'+m).textContent=kTok(tok[m]); $('k-'+m+'usd').textContent=usd(tc[m]);});
   [].forEach.call(document.querySelectorAll('#tt th[data-c]'),function(th){
    var on=+th.dataset.c===sortCol;
