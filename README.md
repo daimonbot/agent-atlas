@@ -57,6 +57,23 @@ Change detection is a stat scan every `--interval` seconds (no inotify: with
   `description`, `parentAgentId`, `spawnDepth`); cost per node computed from
   per-message usage with the 5m/1h cache-tier split.
 
+## Human effort
+
+Every node carries what a person actually contributed, as its own datum next to
+the spawn structure — *where in a run was human visibility needed*:
+
+- `prompts` — messages a human typed. Only a root session has a person on the
+  other end, so a spawned agent's user-role lines (its spawn prompt, anything
+  its parent sent after) are not human input. Harness machinery that also
+  arrives as a `type:"user"` line — `<system-reminder>` / `<task-notification>`
+  injections, interruption markers, skill preambles, compaction preambles — is
+  excluded by the same predicate that picks the session's `firstPrompt`.
+- `decisions` — `AskUserQuestion` gates the human answered, matched `tool_use` →
+  `tool_result` by id. They arrive as tool results, never as prompts, and are
+  the one place a human decision enters an otherwise autonomous run.
+- `interactions` — each answered gate: its questions (header, body, option
+  labels) and the answers chosen, plus the raw answer text.
+
 Planned (design notes, not yet implemented):
 
 - **codex**: `~/.codex/state_5.sqlite` (`threads` incl. free-text `source`,

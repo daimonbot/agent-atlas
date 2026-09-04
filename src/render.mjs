@@ -7,6 +7,20 @@ export const fmtDur = s => s == null ? "" :
   s >= 3600 ? (s / 3600).toFixed(1) + "h" : s >= 60 ? Math.round(s / 60) + "m" : s + "s";
 const kTok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "k" : String(n);
 const shortModel = ms => ms.map(m => m.replace("claude-", "").replace("-20251001", "")).join("+") || "—";
+// Human effort on a node: messages a person typed + AskUserQuestion gates they answered.
+const humanCount = n => ({ p: n.prompts || 0, d: n.decisions || 0 });
+const humanTotal = n => n.children.reduce((a, c) => {
+  const r = humanTotal(c); return { p: a.p + r.p, d: a.d + r.d }; }, humanCount(n));
+const humanLabel = ({ p, d }) => [
+  p ? p + (p === 1 ? " prompt" : " prompts") : null,
+  d ? d + (d === 1 ? " decisión" : " decisiones") : null,
+].filter(Boolean).join(" · ");
+// What was asked and what was answered, for the node's tooltip.
+const gatesTip = n => (n.interactions || []).map((i, k) =>
+  `#${k + 1} ` + i.questions.map(q =>
+    (q.header ? "[" + q.header + "] " : "") + q.question +
+    (q.options.length ? " (" + q.options.join(" | ") + ")" : "")).join(" / ") +
+  " → " + (i.answers.length ? i.answers.join(" | ") : i.answerText)).join("\n");
 
 const CSS = `
 :root{--bg:#101014;--panel:#17171d;--line:#26262e;--tx:#d8d8de;--mut:#8a8a94;--dim:#5c5c66;
@@ -63,6 +77,7 @@ summary .row{width:100%}
 .meta{color:var(--dim);font-size:11px;white-space:nowrap}
 .c{color:var(--gold);font-weight:700;white-space:nowrap}
 .d{margin-right:auto}
+.human{color:var(--green);font-size:11px;white-space:nowrap;cursor:help}
 .share{color:var(--dim);font-size:11px}
 .split{color:var(--mut);font-weight:normal;font-size:11px}`;
 
@@ -153,6 +168,7 @@ export function treeHTML(tree, opts = {}) {
     return `<span class=row style="--w:${share}%" title="${tip}"><span class=mk></span>${badges}<span class=a>${esc(n.agent)}</span>` +
       `<span class=d>${esc(n.description ?? "")}</span>${pr}` +
       ((n.skills && n.skills.length) ? `<span class=chip>⚙ ${esc(n.skills.slice(0,3).join("→"))}${n.skills.length>3?"…":""}</span>` : "") +
+      (humanLabel(humanCount(n)) ? `<span class=human title="${esc(gatesTip(n))}">👤 ${esc(humanLabel(humanCount(n)))}</span>` : "") +
       `<span class=meta>${esc(shortModel(n.model))} · ${esc(n.effort.join(","))} · ${fmtDur(n.durationS)} · ${n.apiCalls}c</span>` +
       `<span class=cols><span>${kTok(n.tokens.output)}</span><span>${kTok(n.tokens.cacheRead)}</span><span>${kTok(n.tokens.cacheWrite5m + n.tokens.cacheWrite1h)}</span></span>` +
       `<span class=c>${usd(n.cost.total)}${conf}` +
@@ -167,6 +183,7 @@ export function treeHTML(tree, opts = {}) {
   }
   const t = tree, tk = t.tokens;
   const nAgents = (function cnt(n) { return n.children.reduce((a, c) => a + 1 + cnt(c), 0); })(t);
+  const hum = humanTotal(t);
   const d = opts.describe || null;
   const sesTitle = (d && d.title) || t.summary || t.identity?.customTitle || t.identity?.agentName || t.agent;
   const sesSub = d ? d.subtitle : "";
@@ -185,6 +202,7 @@ ${backHref ? `<p><a href="${esc(backHref)}">← sesiones</a></p>` : ""}
   <span class=stat><b>${kTok(tk.cacheRead)}</b><span>cache read</span></span>
   <span class=stat><b>${kTok(tk.cacheWrite5m + tk.cacheWrite1h)}</b><span>cache write</span></span>
   <span class=stat><b>${num(t.apiCalls)}</b><span>llamadas API</span></span>
+  <span class=stat><b>${hum.p} · ${hum.d}</b><span>prompts · decisiones</span></span>
   <span class=stat><b>${fmtDur(t.durationS)}</b><span>duración</span></span>
   <span class=stat><b>${esc(shortModel(t.model))}</b><span>${esc(t.effort.join(",") || "—")}</span></span>
  </div>
@@ -224,7 +242,10 @@ export function treeTerminal(tree, width = process.stdout.columns || 120) {
     const cost = usd(n.cost.total) +
       (n.children.length ? ` (own ${usd(n.cost.own)} + sub ${usd(n.cost.children)})` : "") +
       (n.cost.confidence === "computed" ? " ±" : n.cost.confidence === "reported" ? " (reported)" : "");
-    const meta = `${shortModel(n.model)} ${n.effort.join(",")} ${fmtDur(n.durationS)} ${n.apiCalls}c out ${kTok(n.tokens.output)} cR ${kTok(n.tokens.cacheRead)} cW ${kTok(n.tokens.cacheWrite5m + n.tokens.cacheWrite1h)}`;
+    const h = humanCount(n);
+    const meta = `${shortModel(n.model)} ${n.effort.join(",")} ${fmtDur(n.durationS)} ${n.apiCalls}c` +
+      (h.p || h.d ? ` human ${h.p}p/${h.d}d` : "") +
+      ` out ${kTok(n.tokens.output)} cR ${kTok(n.tokens.cacheRead)} cW ${kTok(n.tokens.cacheWrite5m + n.tokens.cacheWrite1h)}`;
     let head = `${prefix}${badge}${n.agent} — ${n.description ?? ""}`;
     const tail = `  ${meta}  ${cost}`;
     const room = width - tail.length - 1;

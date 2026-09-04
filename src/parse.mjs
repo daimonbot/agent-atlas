@@ -6,6 +6,32 @@
 import fs from "node:fs";
 import { priceClaude } from "./prices.mjs";
 
+/** Concatenated text blocks of a message content (string or block array). */
+const textOf = c => (typeof c === "string" ? c
+  : Array.isArray(c) ? c.filter(b => b.type === "text").map(b => b.text).join(" ")
+  : "").trim();
+
+/** Machinery that the harness writes as a `type:"user"` line, by prefix. */
+const INJECTED = [
+  "<",                                    // <system-reminder>, <task-notification>, …
+  "Base directory for this skill",        // skill preamble
+  "[Request interrupted",                 // the human stopped a tool; typed nothing
+  "[Your previous response had no visible output",   // harness nudge
+  "This session is being continued from",            // compaction preamble
+];
+
+/**
+ * Did a person type this? One predicate for the counter and for firstPrompt —
+ * two diverging ones is how the count went wrong: the counter took every line
+ * of the list above for human input.
+ */
+const isHuman = t => !!t && !INJECTED.some(p => t.startsWith(p));
+
+/** Text of a tool_result block (whose content is a string or its own blocks). */
+const resultText = b => (typeof b.content === "string" ? b.content
+  : Array.isArray(b.content) ? b.content.filter(x => x.type === "text").map(x => x.text).join(" ")
+  : "").trim();
+
 export class SessionFileParser {
   constructor(path) {
     this.path = path;
@@ -15,7 +41,10 @@ export class SessionFileParser {
     this.models = new Set();
     this.efforts = new Set();
     this.first = null; this.last = null;
-    this.userMsgs = 0;
+    this.prompts = 0;                  // messages a human actually typed
+    this.decisions = 0;                // AskUserQuestion gates the human answered
+    this.asked = new Map();            // AskUserQuestion tool_use id -> {ts, questions, done}
+    this.interactions = [];            // answered gates, question/answer pairs
     this.toolUseIds = new Set();       // tool_use ids seen (spawn attachment)
     this.firstPrompt = null;           // first real user prompt (session description)
     this.summary = null;               // harness-written summary record, if any
@@ -33,7 +62,8 @@ export class SessionFileParser {
     if (st.size < this.offset) {           // truncated/replaced: full reset
       this.offset = 0; this.tail = ""; this.seen.clear();
       this.models.clear(); this.efforts.clear();
-      this.first = this.last = null; this.userMsgs = 0;
+      this.first = this.last = null; this.prompts = 0; this.decisions = 0;
+      this.asked.clear(); this.interactions = [];
       this.toolUseIds.clear(); this.identity = {};
       this.firstPrompt = null; this.summary = null;
       this.skills = []; this.branches = new Set();
@@ -71,24 +101,26 @@ export class SessionFileParser {
     const m = o.message; if (!m) return;
     if (m.model) this.models.add(m.model);
     const c = m.content;
-    if (o.type === "user" && (typeof c === "string" ||
-        (Array.isArray(c) && c.some(b => b.type === "text") && !c.some(b => b.type === "tool_result")))) {
-      this.userMsgs++;
-      if (!this.firstPrompt) {
-        const txt = (typeof c === "string" ? c
-          : c.filter(b => b.type === "text").map(b => b.text).join(" ")).trim();
-        if (txt && !txt.startsWith("<") && !txt.startsWith("Base directory for this skill")
-            && !txt.startsWith("[Request interrupted"))
-          this.firstPrompt = txt.replace(/\s+/g, " ").slice(0, 500);
+    if (o.type === "user" && c != null) {
+      const t0 = textOf(c);
+      if (isHuman(t0)) {
+        this.prompts++;
+        if (!this.firstPrompt) this.firstPrompt = t0.replace(/\s+/g, " ").slice(0, 500);
       }
-      const t0 = (typeof c === "string" ? c : c.filter(b => b.type === "text").map(b => b.text).join(" ")).trim();
       if (t0.startsWith("Base directory for this skill: "))
         this.#skill(t0.split("\n")[0].split("/").pop());
+      // The other half of human input: the answer to an AskUserQuestion gate.
+      // It arrives as a tool_result, so it is never a prompt — and is exactly
+      // the point where an autonomous run stopped and waited for a person.
+      if (Array.isArray(c))
+        for (const b of c) if (b.type === "tool_result" && this.asked.has(b.tool_use_id))
+          this.#answer(b, o.timestamp);
     }
     if (Array.isArray(c))
       for (const b of c) if (b.type === "tool_use") {
         this.toolUseIds.add(b.id);
         if (b.name === "Skill" && b.input?.skill) this.#skill(b.input.skill);
+        if (b.name === "AskUserQuestion") this.#ask(b, o.timestamp);
       }
     if (m.usage && m.id) {
       const u0 = m.usage;
@@ -103,6 +135,34 @@ export class SessionFileParser {
   }
 
   #skill(name) { if (name && !this.skills.includes(name)) this.skills.push(name); }
+
+  /** Remember a gate's questions; its answer arrives later, matched by id. */
+  #ask(b, ts) {
+    if (this.asked.has(b.id)) return;         // a re-emitted line is the same gate
+    this.asked.set(b.id, { ts, questions: (b.input?.questions || []).map(q => ({
+      header: q.header ?? null,
+      question: String(q.question ?? "").replace(/\s+/g, " ").slice(0, 500),
+      multiSelect: !!q.multiSelect,
+      options: (q.options || []).map(o => o.label).filter(Boolean) })) });
+  }
+
+  /**
+   * Record an answered gate. The harness writes the answers back as prose
+   * ("question"="answer", one per question), so the parse is best-effort and
+   * the raw text is kept alongside it: a gate is never lost to a bad parse.
+   */
+  #answer(b, ts) {
+    const a = this.asked.get(b.tool_use_id);
+    if (a.done) return;                       // an id is answered exactly once
+    a.done = true;
+    const raw = resultText(b).replace(/\s+/g, " ");
+    this.decisions++;
+    this.interactions.push({
+      id: b.tool_use_id, ts: a.ts || ts, answeredAt: ts, questions: a.questions,
+      answers: [...raw.matchAll(/"[^"]*"="([^"]*)"/g)].map(m => m[1]),
+      answerText: raw.slice(0, 500),
+    });
+  }
 
   aggregates() {
     const t = { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
@@ -119,7 +179,8 @@ export class SessionFileParser {
       model: [...this.models], effort: [...this.efforts],
       start: this.first, end: this.last,
       durationS: this.first && this.last ? Math.round((new Date(this.last) - new Date(this.first)) / 1000) : null,
-      apiCalls: this.seen.size, userMsgs: this.userMsgs,
+      apiCalls: this.seen.size,
+      prompts: this.prompts, decisions: this.decisions, interactions: this.interactions,
       firstPrompt: this.firstPrompt, summary: this.summary,
       skills: [...this.skills], branch: [...this.branches][0] || null,
       tokens: t, costOwn: usd, costConfidence: unknown.size ? "partial" : confidence,

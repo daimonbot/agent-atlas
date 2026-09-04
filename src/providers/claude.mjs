@@ -99,7 +99,7 @@ export function buildTree(sessionPath, cache = new Map()) {
       model: l.model ? [l.model] : [], effort: [], start: l.startedAt || null,
       end: l.endedAt || null,
       durationS: l.startedAt && l.endedAt ? Math.round((new Date(l.endedAt) - new Date(l.startedAt)) / 1000) : null,
-      apiCalls: 0, userMsgs: 0,
+      apiCalls: 0, prompts: 0, decisions: 0, interactions: [],
       tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
       costOwn: l.reported?.costUsd ?? l.costUsd ?? 0,
       costConfidence: (l.reported?.costUsd ?? l.costUsd) != null ? "reported" : "n/a",
@@ -109,18 +109,24 @@ export function buildTree(sessionPath, cache = new Map()) {
 
   function finish(agent, description, agentId, via, st, children, extra) {
     children.sort((a, b) => ((a.start || "") < (b.start || "") ? -1 : 1));
+    // Only the root session has a person on the other end. The user-role lines
+    // of a spawned agent's transcript are its spawn prompt and whatever its
+    // parent sent afterwards — agent-written, so not human input. An answered
+    // AskUserQuestion gate is human wherever it appears.
+    const prompts = st ? (via === "root" ? st.prompts : 0) : 0;
     const childUsd = children.reduce((a, c) => a + c.cost.total, 0);
     const own = st ? st.costOwn : 0;
     const conf = st ? st.costConfidence : "n/a";
     return {
       agent, description, agentId, provider: extra.provider || name, via,
       ...(st ? { model: st.model, effort: st.effort, start: st.start, end: st.end,
-                 durationS: st.durationS, apiCalls: st.apiCalls, userMsgs: st.userMsgs,
+                 durationS: st.durationS, apiCalls: st.apiCalls,
+                 prompts, decisions: st.decisions, interactions: st.interactions,
                  tokens: st.tokens, identity: st.identity, unknownModels: st.unknownModels,
                  firstPrompt: st.firstPrompt, summary: st.summary,
                  skills: st.skills, branch: st.branch }
              : { model: [], effort: [], start: null, end: null, durationS: null,
-                 apiCalls: 0, userMsgs: 0,
+                 apiCalls: 0, prompts: 0, decisions: 0, interactions: [],
                  tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
                  identity: {}, unknownModels: [], skills: [], branch: null }),
       ...("phase" in extra && extra.phase !== undefined ? { phase: extra.phase } : {}),
