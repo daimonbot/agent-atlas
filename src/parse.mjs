@@ -39,6 +39,7 @@ export class SessionFileParser {
     this.userMsgs = 0;
     this.humanTurns = new Set();       // promptIds credited to a human (see #line)
     this.asked = new Map();            // AskUserQuestion tool_use id -> {ts, questions, done}
+    this.gateTurn = new Map();         // gate id -> promptId of the turn that answered it
     this.interactions = [];            // answered gates, question/answer pairs
     this.toolUseIds = new Set();       // tool_use ids seen (spawn attachment)
     this.firstPrompt = null;           // first real user prompt (session description)
@@ -62,7 +63,7 @@ export class SessionFileParser {
       this.models.clear(); this.efforts.clear();
       this.first = this.last = null; this.userMsgs = 0;
       this.toolUseIds.clear(); this.humanTurns.clear(); this.identity = {};
-      this.asked.clear(); this.interactions = [];
+      this.asked.clear(); this.interactions = []; this.gateTurn.clear();
       this.firstPrompt = null; this.summary = null;
       this.skills = []; this.branches = new Set();
       this.cwd = null; this.version = null; this.repo = null;
@@ -162,7 +163,10 @@ export class SessionFileParser {
     if (o.type === "user" && Array.isArray(c))
       for (const b of c) if (b.type === "tool_result" && this.asked.has(b.tool_use_id)) {
         this.#answer(b, o.timestamp);
-        if (typeof o.promptId === "string" && o.promptId) this.humanTurns.add(o.promptId);
+        if (typeof o.promptId === "string" && o.promptId) {
+          this.humanTurns.add(o.promptId);
+          this.gateTurn.set(b.tool_use_id, o.promptId);
+        }
       }
     if (Array.isArray(c))
       for (const b of c) if (b.type === "tool_use") {
@@ -184,7 +188,12 @@ export class SessionFileParser {
       // uuid rides along on the winning variant: it is the only link from a
       // deduped API call back to its record, and therefore back to its turn.
       if (!prev || tot > prev.tot)
-        this.seen.set(m.id, { tot, u, model: m.model, ts: o.timestamp, uuid: o.uuid });
+        this.seen.set(m.id, { tot, u, model: m.model, ts: o.timestamp, uuid: o.uuid,
+          acts: (Array.isArray(c) ? c : []).filter(b => b.type === "tool_use")
+            .map(b => ({ name: this.#intern(b.name || "?"), id: b.id ?? null,
+              skill: b.name === "Skill" && b.input?.skill ? this.#intern(b.input.skill) : null,
+              task: b.name === "Task" || b.name === "Agent"
+                ? String(b.input?.description || b.input?.subagent_type || "").slice(0, 80) : null })) });
     }
   }
 
@@ -320,6 +329,8 @@ export class SessionFileParser {
         tokens: g.t,
         costParts: g.cp,
         skills: g.skills,
+        human: this.humanTurns.has(g.pid),
+        decisions: this.interactions.filter(x => this.gateTurn.get(x.id) === g.pid).length,
         subagents: [],            // filled by the provider: only it can see child nodes
         tools: Object.fromEntries(g.tools),
       };
@@ -327,11 +338,32 @@ export class SessionFileParser {
 
     const turnByToolUse = new Map();
     for (const [id, pid] of idTurn) turnByToolUse.set(id, ordOf.get(pid));
-    return { turns, turnByToolUse };
+    return { turns, turnByToolUse, turnOf };
+  }
+
+  /** Every API call this file made, chronological, with what it asked for. */
+  #calls(turnOf) {
+    const out = [];
+    for (const [id, v] of this.seen) {
+      const r = priceClaude(v.model, v.ts, v.u);
+      out.push({ id, ts: v.ts, cost: r.usd, model: v.model, pid: turnOf(v.uuid),
+        tokens: { in: v.u.in, out: v.u.out, cr: v.u.cr, cw: v.u.c5 + v.u.c1h },
+        costParts: r.parts, acts: v.acts || [] });
+    }
+    out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+    let prev = null;
+    for (const k of out) {
+      k.opensHuman = k.pid != null && k.pid !== prev && this.humanTurns.has(k.pid);
+      k.gates = k.pid == null ? 0
+        : this.interactions.filter(x => this.gateTurn.get(x.id) === k.pid && k.pid !== prev).length;
+      prev = k.pid;
+      delete k.pid;
+    }
+    return out;
   }
 
   aggregates() {
-    const { turns, turnByToolUse } = this.#turns();
+    const { turns, turnByToolUse, turnOf } = this.#turns();
     const t = { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
     const byModel = new Map();      // ranks the model list: busiest first
     let usd = 0; const cp = ZERO_PARTS();
@@ -360,7 +392,7 @@ export class SessionFileParser {
       tokens: t, costOwn: usd, costParts: cp,
       costConfidence: unknown.size ? "partial" : confidence,
       unknownModels: [...unknown], identity: this.identity,
-      turns, turnByToolUse,
+      turns, turnByToolUse, calls: this.#calls(turnOf),
     };
   }
 }

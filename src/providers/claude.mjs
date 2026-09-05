@@ -120,6 +120,12 @@ export function buildTree(sessionPath, cache = new Map()) {
     // here are both the turn index and the child nodes in hand. graft()'s
     // ledger-only st is truthy and has no turns at all, hence the guarded read.
     const turns = (st && st.turns) || [];
+    // A turn is only ever "human" on the root transcript: a subagent's opening
+    // prompt is the parent's errand, and the parser cannot tell the difference
+    // from inside the file.
+    if (via !== "root") for (const t of turns) { t.human = false; t.decisions = 0; }
+    const callList = (st && st.calls) || [];
+    if (via !== "root") for (const k of callList) { k.opensHuman = false; k.gates = 0; }
     // A harness child records the tool_use that spawned it on its sidecar, so it
     // joins exactly. A CLI child is launched by an outside process and records
     // nothing, so it falls back to the last turn that had already opened when the
@@ -178,6 +184,7 @@ export function buildTree(sessionPath, cache = new Map()) {
       cost: { own: +own.toFixed(4), children: +childUsd.toFixed(4),
               total, confidence: conf },
       turns,
+      calls: callList,
       children,
     };
   }

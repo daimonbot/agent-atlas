@@ -467,6 +467,11 @@ table.sub-tt tr[data-depth]>td{background:none}
 .fw-bd u{text-decoration:none;font-size:10px;color:var(--mut);font-variant-numeric:tabular-nums}
 .fw-bd span.zero b{color:#c9c8c4;font-weight:400}
 .fw-bd.box{padding-top:.45em;border-top:1px solid var(--line2)}
+.fw-mainwrap{display:flex;margin-bottom:.2em}
+.fw-box.is-main{width:100%;border-color:#b9d4f4;background:linear-gradient(180deg,#f4f9ff,var(--card));
+ cursor:default}
+.fw-box.is-main .a{color:var(--acc);font-size:14px}
+.fw-box.is-main .fw-task{color:var(--mut);white-space:normal;max-width:none}
 .fw-main{background:var(--card);border-color:#b9d4f4;box-shadow:0 1px 2px rgba(11,11,11,.05)}
 .fw-main .fw-head{border-bottom-color:var(--line2);background:var(--accbg)}
 .fw-title{font-size:13px;font-weight:700;color:var(--tx)}
@@ -492,27 +497,71 @@ table.sub-tt tr[data-depth]>td{background:none}
    and the close button — would scroll out of view with the sticky th then stuck
    to the wrong scrollport. overflow:hidden here plus min-height:0 on .tp-wrap is
    what keeps the scroller on the wrapper, the way #twrap does for the big table. */
-#turns{padding:0;border:0;border-radius:12px;background:var(--card);color:var(--tx);
- box-shadow:0 14px 44px rgba(11,11,11,.22);display:flex;flex-direction:column;overflow:hidden;
- max-height:82vh;max-width:min(96vw,1180px)}
-#turns::backdrop{background:rgba(11,11,11,.34)}
-#turns:focus{outline:none}
+#turns{position:fixed;inset:0;z-index:60;background:rgba(11,11,11,.34);
+ display:flex;align-items:center;justify-content:center;padding:2vh 2vw}
+#turns[hidden]{display:none}
+.tp-box{background:var(--card);border-radius:12px;box-shadow:0 14px 44px rgba(11,11,11,.22);
+ display:flex;flex-direction:column;overflow:hidden;width:min(96vw,1500px);max-height:92vh}
 .tp-head{display:flex;align-items:baseline;gap:.7em;flex:0 0 auto;padding:.7em .9em;
  background:#f7f7f5;border-bottom:1px solid var(--line)}
-.tp-head b{font-size:13.5px;font-weight:700;letter-spacing:-.01em}
-.tp-sum{color:var(--mut);font-size:11.5px;font-variant-numeric:tabular-nums}
-.tp-x{margin-left:auto;align-self:center;background:none;border:none;padding:0;font:inherit;
- font-size:15px;line-height:1;color:var(--mut);cursor:pointer;border-radius:6px;
- min-width:24px;min-height:24px}
+.tp-head b{font-size:14px}
+.tp-sum{color:var(--mut);font-size:11.5px}
+.tp-x{margin-left:auto;align-self:center;background:none;border:1px solid var(--line);
+ padding:0;font:inherit;font-size:16px;line-height:1;color:var(--mut);cursor:pointer;
+ border-radius:6px;min-width:28px;min-height:28px;background:var(--card)}
 .tp-x:hover{background:#ececea;color:var(--tx)}
-.tp-x:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
-/* both axes: td is nowrap globally and the tokens cell is four nowrap groups, so
-   the free-text columns are the ones that would fall off the right edge */
+.tp-bar{display:flex;gap:.4em;align-items:center;flex-wrap:wrap;padding:.55em .9em;
+ border-bottom:1px solid var(--line);flex:0 0 auto}
+.tp-f{background:var(--card);border:1px solid var(--line);border-radius:20px;
+ padding:.2em .7em;font:inherit;font-size:11px;color:var(--mut);cursor:pointer}
+.tp-f b{margin-left:.4em;color:var(--tx);font-weight:700}
+.tp-f:hover{border-color:var(--acc);color:var(--tx)}
+.tp-f.on{background:var(--accbg);border-color:#b9d4f4;color:var(--acc)}
+.tp-shown{margin-left:auto;color:var(--dim);font-size:11px}
 .tp-wrap{flex:1 1 auto;min-height:0;overflow:auto}
-table.tp td{vertical-align:top}
-table.tp td:first-child{color:var(--dim);font-weight:650}
-table.tp .fw-line{margin-left:0;gap:.6em}
-table.tp .tp-w{color:var(--dim);margin-left:.45em}
+table.tp{width:100%;border-collapse:collapse;font-size:11.5px}
+.tp th{position:sticky;top:0;background:var(--card);z-index:1;font-size:9.5px;
+ text-transform:uppercase;letter-spacing:.06em;color:var(--dim);font-weight:700;
+ padding:.5em .7em;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+.tp th.r,.tp td.r{text-align:right}
+.tp th.ts{cursor:pointer;user-select:none}
+.tp th.ts:hover{color:var(--tx)}
+.tp th.ts .arr{color:#cbd0d8;font-size:9px;margin-left:.25em}
+.tp th.ts.on{color:var(--tx)} .tp th.ts.on .arr{color:var(--acc)}
+/* fixed widths for the figures so the call column absorbs the slack, not them */
+.tp th:nth-child(1),.tp td:nth-child(1){width:3.2em}
+.tp th:nth-child(2),.tp td:nth-child(2){width:4.6em}
+.tp th:nth-child(3),.tp td:nth-child(3){width:5.4em}
+.tp th:nth-child(5),.tp td:nth-child(5){width:5.4em}
+.tp th:nth-child(n+6),.tp td:nth-child(n+6){width:5.2em}
+.tp td:nth-child(4){width:auto}
+.tp td{padding:.35em .7em;border-bottom:1px solid var(--line2);white-space:nowrap;
+ font-variant-numeric:tabular-nums}
+.tp tbody tr:hover>td{background:#f7f8fa}
+.tp tr.is-human>td{background:#f4f9ff}
+.tp .tp-call{white-space:normal;max-width:46em}
+.tp-ty{display:inline-block;border-radius:5px;padding:0 .45em;font-size:9.5px;font-weight:700;
+ text-transform:uppercase;letter-spacing:.04em}
+.tp-t{background:#f2f4f7;color:var(--mut)}
+.tp-s{background:var(--accbg);color:var(--acc)}
+.tp-k{background:#fffbeb;color:var(--amber)}
+.tp-x2{background:none;color:#c9c8c4;border:1px solid var(--line2)}
+.tp-g{margin-left:.6em;background:none;border:1px solid var(--line);border-radius:5px;
+ padding:0 .4em;font:inherit;font-size:9.5px;font-weight:650;color:var(--acc);cursor:pointer}
+.tp-g:hover{background:var(--accbg)}
+.tp-qabox{background:#f4f9ff;border-bottom:1px solid var(--line);max-height:40vh;overflow:auto}
+.tp-gate{display:flex;gap:.7em;padding:.6em .9em;border-bottom:1px solid #e4eefb}
+.tp-gate:last-child{border-bottom:0}
+.tp-gn{flex:0 0 1.6em;height:1.6em;border-radius:20px;background:var(--acc);color:#fff;
+ font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.tp-gq b{margin-left:.4em}
+.tp-qabox{padding:.6em .9em;display:flex;flex-direction:column;gap:.55em}
+.tp-q{font-size:11.5px;color:var(--mut);white-space:normal;line-height:1.5}
+.tp-q b{display:block;color:var(--acc);font-size:9.5px;text-transform:uppercase;
+ letter-spacing:.05em;margin-bottom:.15em}
+.tp-a{margin-top:.3em;padding-left:.7em;border-left:2px solid #b9d4f4;color:var(--tx)}
+.tp-h{margin-left:.5em;background:var(--accbg);color:var(--acc);border-radius:20px;
+ padding:0 .5em;font-size:9.5px;font-weight:700;text-transform:uppercase}
 .tp-note{flex:0 0 auto;padding:.55em .9em .65em;background:#f7f7f5;
  border-top:1px solid var(--line2);color:var(--mut);font-size:10.5px}
 /* the feature's only entry point, in a row of quiet static spans: same UA reset
@@ -521,6 +570,8 @@ table.tp .tp-w{color:var(--dim);margin-left:.45em}
 .fw-turns{background:var(--accbg);border:1px solid #c9dcf5;border-radius:5px;padding:0 .4em;
  font:inherit;font-size:10.5px;font-weight:650;color:var(--acc);cursor:pointer;line-height:1.5}
 .fw-turns::before{content:"▤ ";font-size:9px}
+.fw-hm{background:var(--accbg);border:1px solid #c9dcf5;border-radius:5px;padding:0 .4em;
+ font-size:10.5px;font-weight:650;color:var(--acc)}
 .fw-turns:hover{background:#dbe9fb;border-color:var(--acc)}
 .fw-turns:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}
 /* narrower viewports: tighten the two elastic columns and the gutters before
@@ -940,6 +991,21 @@ export function treeHTML(tree, opts = {}) {
   // keeps the page growth at ~18% with ~191 turns on the page.
   const r6 = x => +(+(x || 0)).toFixed(6);
   const bare = v => Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0;
+  const callsOf = n => {
+    const cs = n.calls || [];
+    if (!cs.length) return null;
+    const t0 = Date.parse(cs[0].ts);
+    return [t0, cs.map(k => {
+      const acts = (k.acts || []).map(a => a.skill ? ["S", a.skill]
+        : a.task ? ["A", a.name, a.task] : [a.name]);
+      const row = [Date.parse(k.ts) - t0, r6(k.cost),
+        [k.tokens.in, k.tokens.out, k.tokens.cr, k.tokens.cw]];
+      if (acts.length || k.opensHuman || k.gates) row.push(acts);
+      if (k.opensHuman || k.gates) row.push((k.opensHuman ? 1 : 0) + (k.gates ? 2 : 0), k.gates || 0);
+      return row;
+    })];
+  };
+
   const turnsOf = n => (n.turns || []).map(t => {
     const row = [t.ordinal, Date.parse(t.start), Date.parse(t.end), t.apiCalls, r6(t.cost),
       [t.tokens.input, t.tokens.output, t.tokens.cacheRead,
@@ -950,6 +1016,10 @@ export function treeHTML(tree, opts = {}) {
     if (!bare(tl)) row.push(sk, sb, tl);
     else if (!bare(sb)) row.push(sk, sb);
     else if (!bare(sk)) row.push(sk);
+    if (t.human || t.decisions) {
+      while (row.length < 10) row.push(row.length === 7 ? sk : row.length === 8 ? sb : tl);
+      row.push((t.human ? 1 : 0) + (t.decisions ? 2 : 0), t.decisions || 0);
+    }
     return row;
   });
 
@@ -957,6 +1027,7 @@ export function treeHTML(tree, opts = {}) {
   (function walk(n, depth, parent) {
     const a = agg.get(n);
     const tn = turnsOf(n);
+    const cl = callsOf(n);
     flat.push({ k: keyOf(n), p: parent, d: depth, a: n.agent,
       t: n.description || "", s: n.start ? Date.parse(n.start) : null,
       e: n.end ? Date.parse(n.end) : null, c: n.cost.total, o: n.cost.own,
@@ -965,7 +1036,13 @@ export function treeHTML(tree, opts = {}) {
       dl: [a.own.d.in, a.own.d.out, a.own.d.cr, a.own.d.cw],
       TK: [a.tot.t.in, a.tot.t.out, a.tot.t.cr, a.tot.t.cw],
       DL: [a.tot.d.in, a.tot.d.out, a.tot.d.cr, a.tot.d.cw],
-      cli: n.via === "cli" ? 1 : 0, ...(tn.length ? { tn } : {}) });
+      cli: n.via === "cli" ? 1 : 0, ...(tn.length ? { tn } : {}),
+      ...(cl ? { cl } : {}),
+      ...(depth === 0 && (n.interactions || []).length
+        ? { ix: n.interactions.map(g => [Date.parse(g.answeredAt || g.ts),
+            g.questions.map(q => [q.header || "", q.question.slice(0, 220)]),
+            (g.answers || []).map(a => String(a).slice(0, 220))]) }
+        : {}) });
     for (const c of n.children) walk(c, depth + 1, keyOf(n));
   })(tree, 0, null);
 
@@ -1031,7 +1108,7 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
 <table class="tt" id=tt><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div></div>
 <div id=v-trace class="view card"><div id=trace></div></div>
 <div id=v-flow class="view card"><div id=flow></div></div>
-<dialog id=turns aria-labelledby=tp-name tabindex="-1"></dialog>
+<div id=turns hidden role=dialog aria-labelledby=tp-name></div>
 <script type="application/json" id=nodes>${JSON.stringify(flat).replace(/</g, "\\u003c")}</script>
 <script>
 (function(){
@@ -1256,23 +1333,29 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  function subtreeCount(n){
   var c=0; (function w(x){ kidsOf(x).forEach(function(k){ c++; w(k); }); })(n); return c;
  }
- function card(n){
-  var sub=kidsOf(n).length, open=!!fopen[n.k]&&!filtering();
+ function card(n,isMain){
+  var sub=isMain?0:kidsOf(n).length, open=!!fopen[n.k]&&!filtering();
   // the turn count is both the figure and the control: emitted on turn count alone,
   // so a leaf card and a parent card get the identical affordance. The title is what
   // stops .fw-box's own tip(n) surfacing over the button on hover.
-  var N=(n.tn||[]).length, TL=N+' turn'+(N===1?'':'s'), TN=TL+' — '+esc(n.a);
-  return '<div class="fw-box'+(sub?' has':'')+(open?' open':'')+'" data-k="'+esc(n.k)+'"'+
+  var N=n.cl?n.cl[1].length:0, TL=N+' call'+(N===1?'':'s'), TN=TL+' — '+esc(n.a);
+  var HM=0, GT=0;
+  if(n.cl) n.cl[1].forEach(function(r){ if(r[4]&1)HM++; if(r[4]&2)GT+=r[5]||0; });
+  return '<div class="fw-box'+(sub?' has':'')+(open?' open':'')+(isMain?' is-main':'')+'" data-k="'+esc(n.k)+'"'+
    ' title="'+esc(tip(n))+'">'+
    '<div class=fw-name>'+(n.cli?'<span class="badge cli">CLI</span>':'')+
     '<span class=a>'+esc(n.a)+'</span><span class=fw-cost>'+usd(n.o)+'</span></div>'+
-   '<div class=fw-task>'+esc(n.t||'—')+'</div>'+
+   '<div class=fw-task>'+(isMain?'orchestration — runs start to finish, launching the '+
+     'stages below and handling what comes back':esc(n.t||'—'))+'</div>'+
    '<div class=fw-meta><span class=fw-model>'+esc(n.m)+
     (n.ef?'<em>'+esc(n.ef)+'</em>':'')+'</span>'+
     '<span>'+dur(n.e-n.s)+'</span>'+
     (N>0?'<button type=button class="fw-turns" data-k="'+esc(n.k)+'" title="'+TN+
       '" aria-label="'+TN+'">'+TL+'</button>':'')+
-    '<span>'+n.n+' calls</span></div>'+
+    (HM?'<span class=fw-hm title="turns a person opened'+(GT?', including '+GT+
+      ' answered question'+(GT===1?'':'s'):'')+'">'+HM+' human'+
+      (GT?' · '+GT+' decision'+(GT===1?'':'s'):'')+'</span>':'')+
+    (N>0?'':'<span>'+n.n+' calls</span>')+'</div>'+
    '<div class=fw-clock>'+when(n.s,n.e)+'</div>'+
    breakdown(n.tk,n.dl,'fw-bd box')+
    (sub?'<div class=fw-subs><div class=fw-open>'+(open?'▾':'▸')+' '+sub+' subagent'+
@@ -1309,16 +1392,7 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  }
  function drawFlow(){
   var ws=wavesOf(ROOT.k), out=[], agents=NODES.length-1;
-  out.push('<div class="fw-stage fw-main"><div class=fw-head>'+
-   '<span class=fw-title>'+esc(ROOT.a)+'</span>'+
-   '<span class=fw-n>'+(ws.length?'orchestration':'session')+'</span>'+
-   '<span class=fw-when>'+when(ROOT.s,ROOT.e)+'</span>'+
-   '<span class=fw-t>'+dur(ROOT.e-ROOT.s)+'</span>'+
-   inline(ROOT.tk,ROOT.dl)+
-   '<span class=fw-c>'+usd(ROOT.o)+'</span></div>'+
-   '<div class=fw-mainsub>'+esc(ROOT.m)+(ROOT.ef?' '+esc(ROOT.ef):'')+' · '+ROOT.n+' calls'+
-    (ws.length?' — runs from start to finish; this is what it spent itself, '+
-     'launching the stages below and handling what came back':'')+'</div></div>');
+  out.push('<div class=fw-mainwrap>'+card(ROOT,true)+'</div>');
   if(!ws.length){ out.push('<p class=dim style="padding:.8em .2em">No subagents in this session.</p>');
    document.getElementById('flow').innerHTML=out.join(''); return; }
   out.push('<div class=fw-divider><span>'+agents+' subagent'+(agents>1?'s':'')+
@@ -1334,81 +1408,129 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  // A card's turn count opens this. It is a detail view over exactly one agent: the
  // body is re-derived from BYK[topen] and from nothing else, so it can never hold a
  // union of two agents' turns.
- var topen=null, tdrawn=null, tdown=false, dlg=document.getElementById('turns');
- function turnPanel(n){
-  var tn=n.tn||[], calls=0, inf=false;
-  var body=tn.map(function(t){
-   calls+=t[3];
-   var sk=(t[7]||[]).map(function(s){return esc(s);}).join(' ');
-   var sb=(t[8]||[]).map(function(p){
-    if(!p[1])inf=true;                          // matched by start time, not by a tool call
-    return esc(BYK[p[0]]?BYK[p[0]].a:p[0])+(p[1]?'':'~');
-   }).join(' ');
-   var tl=t[9]||{};
-   var tc=Object.keys(tl).map(function(x){ return esc(x)+'×'+tl[x]; }).join(' ');
-   return '<tr><td>'+t[0]+'</td>'+
-    '<td>'+when(t[1],t[2])+'<span class=tp-w>'+dur(t[2]-t[1])+'</span></td>'+
-    '<td class=r>'+t[3]+'</td><td class="r money">'+usd(t[4])+'</td>'+
-    '<td>'+inline(t[5],t[6])+'</td>'+
-    '<td>'+sk+'</td><td>'+sb+'</td><td>'+tc+'</td></tr>';
-  }).join('');
-  // turns and calls are summed over the rows below, never read off n.n, so the
-  // summary cannot silently disagree with the table it heads. At one turn the
-  // calls/turn term just restates the call count two figures to its left.
-  var sum=tn.length+' turn'+(tn.length===1?'':'s')+' · '+calls+' call'+(calls===1?'':'s')+
-   ' · '+usd(n.o)+(tn.length>1?' · '+(calls/tn.length).toFixed(1)+' calls/turn':'');
-  return '<div class=tp-head><b id=tp-name>'+esc(n.a)+'</b>'+
-    '<span class=tp-sum>'+sum+'</span>'+
-    '<button type=button class="tp-x" aria-label="Close">×</button></div>'+
-   '<div class=tp-wrap><table class=tp><thead><tr><th>#</th><th>window</th>'+
-    '<th class=r>calls</th><th class=r>cost</th><th>tokens</th><th>skills</th>'+
-    '<th>subagents</th><th>tools</th></tr></thead><tbody>'+body+'</tbody></table></div>'+
-   // sibling of the scroller, not inside it: a legend for a ~ seen at row 3 must not
-   // sit below row 60
-   (inf?'<div class=tp-note>~ matched to this turn by start time, not by the tool '+
-     'call that launched it</div>':'');
+ var topen=null, tdrawn=null, tfilter='', dlg=document.getElementById('turns');
+ // One row per API call: what kind of thing it asked for, what it was, and what
+ // it consumed. A real table — the grid could not keep columns aligned once the
+ // action names varied in width.
+ var TYPE={S:['skill','tp-k'],A:['agent','tp-s'],T:['tool','tp-t'],X:['text','tp-x2']};
+ var tsort=0, tdir=1, tgate=-1;    // 0 = chronological, the order it happened in
+ var TCOL=[['#',0,1],['time',0,1],['type',2,0],['call',3,0],['cost',1,1],
+           ['in',4,1],['out',5,1],['cache r',6,1],['cache w',7,1]];
+ function tval(r,c,ord){
+  if(c===0)return ord;                      // '#': the order it happened in
+  if(c===1)return r[0];                     // time
+  if(c===2)return TYPE[callKind(r)][0];
+  if(c===3)return callNames(r).replace(/<[^>]*>/g,'');
+  if(c===4)return r[1];                     // cost
+  return r[2][c-5];                         // in / out / cache r / cache w
  }
+ function callKind(r){
+  var a=r[3]||[];
+  if(!a.length)return 'X';
+  if(a.some(function(x){return x[0]==='S';}))return 'S';
+  if(a.some(function(x){return x[0]==='A';}))return 'A';
+  return 'T';
+ }
+ function callNames(r){
+  return (r[3]||[]).map(function(a){
+   if(a[0]==='S')return esc(a[1]);
+   if(a[0]==='A')return esc(a[1])+(a[2]?' · '+esc(a[2]):'');
+   return esc(a[0]);
+  }).join(', ');
+ }
+ function turnPanel(n){
+  var cl=n.cl, t0=cl?cl[0]:0, rows=cl?cl[1]:[];
+  var count={S:0,A:0,T:0,X:0}, human=0, gates=0;
+  rows.forEach(function(r){ count[callKind(r)]++; if(r[4]&1)human++; if(r[4]&2)gates+=r[5]||0; });
+  var shown=rows.filter(function(r){
+   return !tfilter || (tfilter==='H' ? !!(r[4]&1) : callKind(r)===tfilter); });
+  if(tsort){
+   shown=shown.slice().sort(function(a,b){
+    var x=tval(a,tsort,rows.indexOf(a)), y=tval(b,tsort,rows.indexOf(b));
+    return (typeof x==='number'?x-y:(x<y?-1:x>y?1:0))*tdir;
+   });
+  }
+  var body=shown.map(function(r){
+   var k=callKind(r), tk=r[2], mark=(r[4]&1)?'<span class=tp-h title="a person stepped in here">'+
+    ((r[4]&2)?'human · '+r[5]+' decision'+(r[5]===1?'':'s'):'human')+'</span>':'';
+   return '<tr'+((r[4]&1)?' class=is-human':'')+'>'+
+    '<td class="r dim">'+(rows.indexOf(r)+1)+'</td>'+
+    '<td class=mono>'+hhmm(t0+r[0])+'</td>'+
+    '<td><span class="tp-ty '+TYPE[k][1]+'">'+TYPE[k][0]+'</span></td>'+
+    '<td class=tp-call>'+(callNames(r)||'<span class=dim>—</span>')+mark+'</td>'+
+    '<td class="r money">'+usd(r[1])+'</td>'+
+    '<td class=r>'+kTok(tk[0])+'</td><td class=r>'+kTok(tk[1])+'</td>'+
+    '<td class=r>'+kTok(tk[2])+'</td><td class=r>'+kTok(tk[3])+'</td></tr>';
+  }).join('');
+  var chip=function(f,label,c){
+   return c?'<button type=button class="tp-f'+(tfilter===f?' on':'')+'" data-f="'+f+'">'+
+    label+'<b>'+c+'</b></button>':''; };
+  var spent=shown.reduce(function(a,r){return a+r[1];},0);
+  return '<div class=tp-head><b id=tp-name>'+esc(n.a)+'</b>'+
+    '<span class=tp-sum>'+rows.length+' calls · '+usd(n.o)+' · '+dur(n.e-n.s)+'</span>'+
+    '<button type=button class="tp-x" aria-label="Close">×</button></div>'+
+   '<div class=tp-bar>'+chip('T','tools',count.T)+chip('S','skills',count.S)+
+    chip('A','agents',count.A)+chip('X','text only',count.X)+
+    chip('H','human',human)+
+    (gates?'<button type=button class="tp-f tp-gq'+(tgate>=0?' on':'')+'" data-g="all">'+
+      (tgate>=0?'hide':'show')+' Q&amp;A<b>'+gates+'</b></button>':'')+
+    '<span class=tp-shown>'+(tfilter?shown.length+' of '+rows.length+' · '+usd(spent):
+     (gates?gates+' decision'+(gates===1?'':'s'):''))+'</span></div>'+
+   (tgate>=0&&(n.ix||[]).length
+     ? '<div class=tp-qabox>'+n.ix.map(function(g,i){
+        return '<div class=tp-gate><span class=tp-gn>'+(i+1)+'</span><div>'+
+         g[1].map(function(q,qi){
+          return '<div class=tp-q><b>'+esc(q[0])+'</b>'+esc(q[1])+
+           (g[2][qi]?'<div class=tp-a>'+esc(g[2][qi])+'</div>':'')+'</div>';
+         }).join('')+'</div></div>';
+       }).join('')+'</div>'
+     : '')+
+   '<div class=tp-wrap><table class=tp><thead><tr>'+
+    TCOL.map(function(c,i){
+     var on=tsort===i;
+     return '<th class="'+(c[2]?'r ':'')+'ts'+(on?' on':'')+'" data-c="'+i+'">'+c[0]+
+      '<span class=arr>'+(on?(tdir<0?'▼':'▲'):'⇅')+'</span></th>';
+    }).join('')+'</tr></thead><tbody>'+body+'</tbody></table></div>';
+ }
+ // A plain overlay, not <dialog>. showModal() puts the panel in the top layer,
+ // and something there was eating the close click in a way no amount of extra
+ // listeners fixed. A div obeys the same rules as the rest of the page.
  function drawTurns(){
   var n=BYK[topen];
   if(!n){ closeTurns(); return; }
   var html=turnPanel(n);
-  if(html===tdrawn)return;         // unchanged: no DOM write at all, so a user reading
-                                   // turn 42 keeps their scroll, focus and selection
-  var w=dlg.querySelector('.tp-wrap');
-  var y=tdrawn===null?0:(w?w.scrollTop:0);   // a fresh panel opens at the top
-  dlg.innerHTML=html; tdrawn=html;
+  if(html===tdrawn)return;         // unchanged: no DOM write, so a reader keeps
+  var w=dlg.querySelector('.tp-wrap');           // scroll, focus and selection
+  var y=tdrawn===null?0:(w?w.scrollTop:0);
+  dlg.innerHTML='<div class=tp-box>'+html+'</div>'; tdrawn=html;
   w=dlg.querySelector('.tp-wrap'); if(w)w.scrollTop=y;
  }
  function openTurns(k){
-  topen=k; tdrawn=null;            // fresh panel: drop the cache, start at row 1
+  topen=k; tdrawn=null; tfilter=''; tgate=-1;
   drawTurns();
-  if(!dlg.open)dlg.showModal();    // showModal() on an already-open dialog throws
-  dlg.focus();                     // so the dialog announces its agent, not its Close
+  dlg.hidden=false; document.body.style.overflow='hidden';
  }
  function closeTurns(){
-  var k=topen;                     // capture first: the key is what finds the button back
-  topen=null; tdrawn=null;
-  if(dlg.open)dlg.close();
+  var k=topen; topen=null; tdrawn=null; tfilter=''; tgate=-1;
+  dlg.hidden=true; dlg.innerHTML=''; document.body.style.overflow='';
   var b=k?document.querySelector('.fw-turns[data-k="'+k+'"]'):null;
-  // tick() redraws #flow while the panel is open and detaches the button showModal()
-  // recorded, so dlg.close() drops focus on <body> at the top of the document. Fall
-  // back to the Flow tab: a native button, announced, and outside every region tick()
-  // rewrites. (#flow itself is a plain div with no tabindex — focusing it moves nothing.)
   if(!b)b=document.querySelector('.tab[data-v=flow]');
   if(b)b.focus();
  }
- // The platform closes a showModal() dialog on Escape and fires 'cancel' as it does,
- // so that event IS this panel's Escape-keyed close path and no keydown listener
- // exists. Nothing here may preventDefault(): that would suppress the close itself.
- dlg.addEventListener('cancel',function(e){ closeTurns(); });
- dlg.addEventListener('mousedown',function(e){ tdown=(e.target===dlg); });
+ // one listener, on the overlay, covering both the close button and the backdrop
  dlg.addEventListener('click',function(e){
+  if(e.target===dlg){ closeTurns(); return; }             // backdrop
   if(e.target.closest&&e.target.closest('.tp-x')){ closeTurns(); return; }
-  // #turns carries no padding and no border, so a click on the dialog element itself
-  // is a backdrop click. It must have started there too: a drag from a cost cell that
-  // releases outside is a user selecting a figure to copy, not asking to close.
-  if(e.target===dlg&&tdown)closeTurns();
+  var g=e.target.closest&&e.target.closest('.tp-gq');
+  if(g){ tgate=(tgate>=0?-1:0); tdrawn=null; drawTurns(); return; }
+  var f=e.target.closest&&e.target.closest('.tp-f');
+  if(f){ tfilter=(tfilter===f.dataset.f?'':f.dataset.f); tdrawn=null; drawTurns(); return; }
+  var th=e.target.closest&&e.target.closest('.tp th.ts');
+  if(th){ var c=+th.dataset.c;
+   if(c===tsort)tdir=-tdir; else { tsort=c; tdir=(c===2||c===3)?1:-1; }
+   tdrawn=null; drawTurns(); }
  });
+ document.addEventListener('keydown',function(e){ if(topen&&e.key==='Escape')closeTurns(); });
  // ---- breakdown: where the money (or the tokens, or the time) actually went ----
  // main is counted as one more row. It is not a subagent, but it burns real
  // tokens — a quarter of the bill in a typical session — so leaving it out
