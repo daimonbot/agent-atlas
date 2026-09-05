@@ -467,6 +467,11 @@ table.sub-tt tr[data-depth]>td{background:none}
 .fw-bd u{text-decoration:none;font-size:10px;color:var(--mut);font-variant-numeric:tabular-nums}
 .fw-bd span.zero b{color:#c9c8c4;font-weight:400}
 .fw-bd.box{padding-top:.45em;border-top:1px solid var(--line2)}
+.fw-mainwrap{display:flex;margin-bottom:.2em}
+.fw-box.is-main{width:100%;border-color:#b9d4f4;background:linear-gradient(180deg,#f4f9ff,var(--card));
+ cursor:default}
+.fw-box.is-main .a{color:var(--acc);font-size:14px}
+.fw-box.is-main .fw-task{color:var(--mut);white-space:normal;max-width:none}
 .fw-main{background:var(--card);border-color:#b9d4f4;box-shadow:0 1px 2px rgba(11,11,11,.05)}
 .fw-main .fw-head{border-bottom-color:var(--line2);background:var(--accbg)}
 .fw-title{font-size:13px;font-weight:700;color:var(--tx)}
@@ -1313,23 +1318,24 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  function subtreeCount(n){
   var c=0; (function w(x){ kidsOf(x).forEach(function(k){ c++; w(k); }); })(n); return c;
  }
- function card(n){
-  var sub=kidsOf(n).length, open=!!fopen[n.k]&&!filtering();
+ function card(n,isMain){
+  var sub=isMain?0:kidsOf(n).length, open=!!fopen[n.k]&&!filtering();
   // the turn count is both the figure and the control: emitted on turn count alone,
   // so a leaf card and a parent card get the identical affordance. The title is what
   // stops .fw-box's own tip(n) surfacing over the button on hover.
   var N=n.cl?n.cl[1].length:0, TL=N+' call'+(N===1?'':'s'), TN=TL+' — '+esc(n.a);
-  return '<div class="fw-box'+(sub?' has':'')+(open?' open':'')+'" data-k="'+esc(n.k)+'"'+
+  return '<div class="fw-box'+(sub?' has':'')+(open?' open':'')+(isMain?' is-main':'')+'" data-k="'+esc(n.k)+'"'+
    ' title="'+esc(tip(n))+'">'+
    '<div class=fw-name>'+(n.cli?'<span class="badge cli">CLI</span>':'')+
     '<span class=a>'+esc(n.a)+'</span><span class=fw-cost>'+usd(n.o)+'</span></div>'+
-   '<div class=fw-task>'+esc(n.t||'—')+'</div>'+
+   '<div class=fw-task>'+(isMain?'orchestration — runs start to finish, launching the '+
+     'stages below and handling what comes back':esc(n.t||'—'))+'</div>'+
    '<div class=fw-meta><span class=fw-model>'+esc(n.m)+
     (n.ef?'<em>'+esc(n.ef)+'</em>':'')+'</span>'+
     '<span>'+dur(n.e-n.s)+'</span>'+
     (N>0?'<button type=button class="fw-turns" data-k="'+esc(n.k)+'" title="'+TN+
       '" aria-label="'+TN+'">'+TL+'</button>':'')+
-    '<span>'+n.n+' calls</span></div>'+
+    (N>0?'':'<span>'+n.n+' calls</span>')+'</div>'+
    '<div class=fw-clock>'+when(n.s,n.e)+'</div>'+
    breakdown(n.tk,n.dl,'fw-bd box')+
    (sub?'<div class=fw-subs><div class=fw-open>'+(open?'▾':'▸')+' '+sub+' subagent'+
@@ -1366,16 +1372,7 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  }
  function drawFlow(){
   var ws=wavesOf(ROOT.k), out=[], agents=NODES.length-1;
-  out.push('<div class="fw-stage fw-main"><div class=fw-head>'+
-   '<span class=fw-title>'+esc(ROOT.a)+'</span>'+
-   '<span class=fw-n>'+(ws.length?'orchestration':'session')+'</span>'+
-   '<span class=fw-when>'+when(ROOT.s,ROOT.e)+'</span>'+
-   '<span class=fw-t>'+dur(ROOT.e-ROOT.s)+'</span>'+
-   inline(ROOT.tk,ROOT.dl)+
-   '<span class=fw-c>'+usd(ROOT.o)+'</span></div>'+
-   '<div class=fw-mainsub>'+esc(ROOT.m)+(ROOT.ef?' '+esc(ROOT.ef):'')+' · '+ROOT.n+' calls'+
-    (ws.length?' — runs from start to finish; this is what it spent itself, '+
-     'launching the stages below and handling what came back':'')+'</div></div>');
+  out.push('<div class=fw-mainwrap>'+card(ROOT,true)+'</div>');
   if(!ws.length){ out.push('<p class=dim style="padding:.8em .2em">No subagents in this session.</p>');
    document.getElementById('flow').innerHTML=out.join(''); return; }
   out.push('<div class=fw-divider><span>'+agents+' subagent'+(agents>1?'s':'')+
