@@ -524,6 +524,17 @@ table.tp{width:100%;border-collapse:collapse;font-size:11.5px}
  text-transform:uppercase;letter-spacing:.06em;color:var(--dim);font-weight:700;
  padding:.5em .7em;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 .tp th.r,.tp td.r{text-align:right}
+.tp th.ts{cursor:pointer;user-select:none}
+.tp th.ts:hover{color:var(--tx)}
+.tp th.ts .arr{color:#cbd0d8;font-size:9px;margin-left:.25em}
+.tp th.ts.on{color:var(--tx)} .tp th.ts.on .arr{color:var(--acc)}
+/* fixed widths for the figures so the call column absorbs the slack, not them */
+.tp th:nth-child(1),.tp td:nth-child(1){width:3.2em}
+.tp th:nth-child(2),.tp td:nth-child(2){width:4.6em}
+.tp th:nth-child(3),.tp td:nth-child(3){width:5.4em}
+.tp th:nth-child(5),.tp td:nth-child(5){width:5.4em}
+.tp th:nth-child(n+6),.tp td:nth-child(n+6){width:5.2em}
+.tp td:nth-child(4){width:auto}
 .tp td{padding:.35em .7em;border-bottom:1px solid var(--line2);white-space:nowrap;
  font-variant-numeric:tabular-nums}
 .tp tbody tr:hover>td{background:#f7f8fa}
@@ -535,6 +546,20 @@ table.tp{width:100%;border-collapse:collapse;font-size:11.5px}
 .tp-s{background:var(--accbg);color:var(--acc)}
 .tp-k{background:#fffbeb;color:var(--amber)}
 .tp-x2{background:none;color:#c9c8c4;border:1px solid var(--line2)}
+.tp-g{margin-left:.6em;background:none;border:1px solid var(--line);border-radius:5px;
+ padding:0 .4em;font:inherit;font-size:9.5px;font-weight:650;color:var(--acc);cursor:pointer}
+.tp-g:hover{background:var(--accbg)}
+.tp-qabox{background:#f4f9ff;border-bottom:1px solid var(--line);max-height:40vh;overflow:auto}
+.tp-gate{display:flex;gap:.7em;padding:.6em .9em;border-bottom:1px solid #e4eefb}
+.tp-gate:last-child{border-bottom:0}
+.tp-gn{flex:0 0 1.6em;height:1.6em;border-radius:20px;background:var(--acc);color:#fff;
+ font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.tp-gq b{margin-left:.4em}
+.tp-qabox{padding:.6em .9em;display:flex;flex-direction:column;gap:.55em}
+.tp-q{font-size:11.5px;color:var(--mut);white-space:normal;line-height:1.5}
+.tp-q b{display:block;color:var(--acc);font-size:9.5px;text-transform:uppercase;
+ letter-spacing:.05em;margin-bottom:.15em}
+.tp-a{margin-top:.3em;padding-left:.7em;border-left:2px solid #b9d4f4;color:var(--tx)}
 .tp-h{margin-left:.5em;background:var(--accbg);color:var(--acc);border-radius:20px;
  padding:0 .5em;font-size:9.5px;font-weight:700;text-transform:uppercase}
 .tp-note{flex:0 0 auto;padding:.55em .9em .65em;background:#f7f7f5;
@@ -1012,7 +1037,12 @@ export function treeHTML(tree, opts = {}) {
       TK: [a.tot.t.in, a.tot.t.out, a.tot.t.cr, a.tot.t.cw],
       DL: [a.tot.d.in, a.tot.d.out, a.tot.d.cr, a.tot.d.cw],
       cli: n.via === "cli" ? 1 : 0, ...(tn.length ? { tn } : {}),
-      ...(cl ? { cl } : {}) });
+      ...(cl ? { cl } : {}),
+      ...(depth === 0 && (n.interactions || []).length
+        ? { ix: n.interactions.map(g => [Date.parse(g.answeredAt || g.ts),
+            g.questions.map(q => [q.header || "", q.question.slice(0, 220)]),
+            (g.answers || []).map(a => String(a).slice(0, 220))]) }
+        : {}) });
     for (const c of n.children) walk(c, depth + 1, keyOf(n));
   })(tree, 0, null);
 
@@ -1383,6 +1413,17 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  // it consumed. A real table — the grid could not keep columns aligned once the
  // action names varied in width.
  var TYPE={S:['skill','tp-k'],A:['agent','tp-s'],T:['tool','tp-t'],X:['text','tp-x2']};
+ var tsort=0, tdir=1, tgate=-1;    // 0 = chronological, the order it happened in
+ var TCOL=[['#',0,1],['time',0,1],['type',2,0],['call',3,0],['cost',1,1],
+           ['in',4,1],['out',5,1],['cache r',6,1],['cache w',7,1]];
+ function tval(r,c,ord){
+  if(c===0)return ord;                      // '#': the order it happened in
+  if(c===1)return r[0];                     // time
+  if(c===2)return TYPE[callKind(r)][0];
+  if(c===3)return callNames(r).replace(/<[^>]*>/g,'');
+  if(c===4)return r[1];                     // cost
+  return r[2][c-5];                         // in / out / cache r / cache w
+ }
  function callKind(r){
   var a=r[3]||[];
   if(!a.length)return 'X';
@@ -1403,11 +1444,17 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   rows.forEach(function(r){ count[callKind(r)]++; if(r[4]&1)human++; if(r[4]&2)gates+=r[5]||0; });
   var shown=rows.filter(function(r){
    return !tfilter || (tfilter==='H' ? !!(r[4]&1) : callKind(r)===tfilter); });
+  if(tsort){
+   shown=shown.slice().sort(function(a,b){
+    var x=tval(a,tsort,rows.indexOf(a)), y=tval(b,tsort,rows.indexOf(b));
+    return (typeof x==='number'?x-y:(x<y?-1:x>y?1:0))*tdir;
+   });
+  }
   var body=shown.map(function(r){
    var k=callKind(r), tk=r[2], mark=(r[4]&1)?'<span class=tp-h title="a person stepped in here">'+
     ((r[4]&2)?'human · '+r[5]+' decision'+(r[5]===1?'':'s'):'human')+'</span>':'';
    return '<tr'+((r[4]&1)?' class=is-human':'')+'>'+
-    '<td class=r>'+(rows.indexOf(r)+1)+'</td>'+
+    '<td class="r dim">'+(rows.indexOf(r)+1)+'</td>'+
     '<td class=mono>'+hhmm(t0+r[0])+'</td>'+
     '<td><span class="tp-ty '+TYPE[k][1]+'">'+TYPE[k][0]+'</span></td>'+
     '<td class=tp-call>'+(callNames(r)||'<span class=dim>—</span>')+mark+'</td>'+
@@ -1425,12 +1472,25 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
    '<div class=tp-bar>'+chip('T','tools',count.T)+chip('S','skills',count.S)+
     chip('A','agents',count.A)+chip('X','text only',count.X)+
     chip('H','human',human)+
+    (gates?'<button type=button class="tp-f tp-gq'+(tgate>=0?' on':'')+'" data-g="all">'+
+      (tgate>=0?'hide':'show')+' Q&amp;A<b>'+gates+'</b></button>':'')+
     '<span class=tp-shown>'+(tfilter?shown.length+' of '+rows.length+' · '+usd(spent):
      (gates?gates+' decision'+(gates===1?'':'s'):''))+'</span></div>'+
+   (tgate>=0&&(n.ix||[]).length
+     ? '<div class=tp-qabox>'+n.ix.map(function(g,i){
+        return '<div class=tp-gate><span class=tp-gn>'+(i+1)+'</span><div>'+
+         g[1].map(function(q,qi){
+          return '<div class=tp-q><b>'+esc(q[0])+'</b>'+esc(q[1])+
+           (g[2][qi]?'<div class=tp-a>'+esc(g[2][qi])+'</div>':'')+'</div>';
+         }).join('')+'</div></div>';
+       }).join('')+'</div>'
+     : '')+
    '<div class=tp-wrap><table class=tp><thead><tr>'+
-    '<th class=r>#</th><th>time</th><th>type</th><th>call</th><th class=r>cost</th>'+
-    '<th class=r>in</th><th class=r>out</th><th class=r>cache r</th><th class=r>cache w</th>'+
-    '</tr></thead><tbody>'+body+'</tbody></table></div>';
+    TCOL.map(function(c,i){
+     var on=tsort===i;
+     return '<th class="'+(c[2]?'r ':'')+'ts'+(on?' on':'')+'" data-c="'+i+'">'+c[0]+
+      '<span class=arr>'+(on?(tdir<0?'▼':'▲'):'⇅')+'</span></th>';
+    }).join('')+'</tr></thead><tbody>'+body+'</tbody></table></div>';
  }
  // A plain overlay, not <dialog>. showModal() puts the panel in the top layer,
  // and something there was eating the close click in a way no amount of extra
@@ -1446,12 +1506,12 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   w=dlg.querySelector('.tp-wrap'); if(w)w.scrollTop=y;
  }
  function openTurns(k){
-  topen=k; tdrawn=null; tfilter='';
+  topen=k; tdrawn=null; tfilter=''; tgate=-1;
   drawTurns();
   dlg.hidden=false; document.body.style.overflow='hidden';
  }
  function closeTurns(){
-  var k=topen; topen=null; tdrawn=null; tfilter='';
+  var k=topen; topen=null; tdrawn=null; tfilter=''; tgate=-1;
   dlg.hidden=true; dlg.innerHTML=''; document.body.style.overflow='';
   var b=k?document.querySelector('.fw-turns[data-k="'+k+'"]'):null;
   if(!b)b=document.querySelector('.tab[data-v=flow]');
@@ -1461,8 +1521,14 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  dlg.addEventListener('click',function(e){
   if(e.target===dlg){ closeTurns(); return; }             // backdrop
   if(e.target.closest&&e.target.closest('.tp-x')){ closeTurns(); return; }
+  var g=e.target.closest&&e.target.closest('.tp-gq');
+  if(g){ tgate=(tgate>=0?-1:0); tdrawn=null; drawTurns(); return; }
   var f=e.target.closest&&e.target.closest('.tp-f');
-  if(f){ tfilter=(tfilter===f.dataset.f?'':f.dataset.f); tdrawn=null; drawTurns(); }
+  if(f){ tfilter=(tfilter===f.dataset.f?'':f.dataset.f); tdrawn=null; drawTurns(); return; }
+  var th=e.target.closest&&e.target.closest('.tp th.ts');
+  if(th){ var c=+th.dataset.c;
+   if(c===tsort)tdir=-tdir; else { tsort=c; tdir=(c===2||c===3)?1:-1; }
+   tdrawn=null; drawTurns(); }
  });
  document.addEventListener('keydown',function(e){ if(topen&&e.key==='Escape')closeTurns(); });
  // ---- breakdown: where the money (or the tokens, or the time) actually went ----
