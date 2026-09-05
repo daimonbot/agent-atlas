@@ -67,29 +67,7 @@ Planned (design notes, not yet implemented):
   in Codex's store — costs would be list-price × tokens, flagged `computed`.
 - **cursor**: nothing to read — Cursor persists no billable usage locally and
   its headless CLI reports no cost (open feature request). Cursor-launched
-  work appears via the launch ledger below, cost `n/a`.
-
-## The launch ledger (`launches.jsonl`)
-
-Agents launched **by CLI** (e.g. `claude -p`, `codex exec`) leave no
-parent→child link on disk. Whoever launches them closes that gap by appending
-one JSON line to `<session-dir>/launches.jsonl` (sibling of `subagents/`):
-
-```json
-{"parentAgent": null,                    // or the agentId of the spawning subagent
- "provider": "claude",                   // claude | codex | cursor | …
- "agent": "flow9-design-round1-refuter", // caller-chosen identity
- "description": "refute finding F1",
- "childSession": "<uuid>",               // caller-chosen --session-id
- "childTranscript": "/abs/path.jsonl",   // known BEFORE launch (deterministic link)
- "phase": "design", "round": 1,          // optional metadata, free-form
- "reported": {"costUsd": 0.002234}}      // whatever the CLI reported on exit
-```
-
-Claude-provider entries are grafted as full recursive subtrees (their own
-subagents and ledgers included) with cost recomputed from the child transcript;
-other providers appear as leaves with `reported` data. Cost confidence is
-labeled per node: `verified` / `computed` / `reported` / `n/a`.
+  work has no local trace at all today.
 
 ## Pricing
 

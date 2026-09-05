@@ -1,8 +1,13 @@
 // Claude Code provider adapter.
 // Sessions live in ~/.claude/projects/<project>/<uuid>.jsonl ; harness subagents
 // in <uuid>/subagents/agent-*.jsonl with .meta.json sidecars (agentType,
-// description, toolUseId, parentAgentId, spawnDepth); CLI-launched children are
-// declared by whoever launches them in <uuid>/launches.jsonl (see README).
+// description, toolUseId, parentAgentId, spawnDepth).
+//
+// Everything read here is written by the harness itself, and that is the rule:
+// atlas reads what already exists and asks no one to write anything for it. A
+// CLI-launched child leaves no parent->child link on disk; a ledger the launcher
+// had to append to was tried, went unimplemented, and was removed. The way to
+// see a non-Claude child is to read that provider's own store.
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -48,16 +53,6 @@ function readMetas(f) {
   return out;
 }
 
-function readLaunches(f) {
-  const p = path.join(sessionDir(f), "launches.jsonl");
-  if (!fs.existsSync(p)) return [];
-  const out = [];
-  for (const l of fs.readFileSync(p, "utf8").split("\n")) {
-    if (!l.trim()) continue;
-    try { out.push(JSON.parse(l)); } catch { /* partial trailing line */ }
-  }
-  return out;
-}
 
 /**
  * Build the full agent tree for a session file.
@@ -75,7 +70,6 @@ export function buildTree(sessionPath, cache = new Map()) {
     const exists = fs.existsSync(file);
     const st = exists ? parserFor(file).aggregates() : null;
     const metas = exists ? readMetas(file) : [];
-    const launches = exists ? readLaunches(file) : [];
     const children = [];
     // Every harness sidecar in this file, indexed by the id that becomes the
     // child node's agentId, so finish() can join a child back to the turn whose
@@ -89,36 +83,18 @@ export function buildTree(sessionPath, cache = new Map()) {
     const sub = (m) => {
       const s = fs.existsSync(m.jsonl) ? parserFor(m.jsonl).aggregates() : null;
       const kids = attach(m.id).map(sub);
-      for (const l of launches.filter(x => (x.parentAgent || null) === m.id)) kids.push(graft(l));
       return finish(m.meta.agentType, m.meta.description, m.id, "harness", s, kids, {}, tuid);
     };
     for (const m of attach(null)) children.push(sub(m));
-    for (const l of launches.filter(x => !x.parentAgent)) children.push(graft(l));
     return finish(agent, description, agentId, via, st, children, extra || {}, tuid);
   }
 
-  function graft(l) {
-    const extra = { phase: l.phase, round: l.round, reported: l.reported ?? (l.costUsd != null ? { costUsd: l.costUsd } : undefined) };
-    if ((l.provider || "claude") === "claude" && l.childTranscript)
-      return { ...node(l.agent, l.description, l.childSession, l.childTranscript, "cli", extra) };
-    // non-claude or transcript-less launch: leaf from ledger data only
-    return finish(l.agent, l.description, l.childSession || null, "cli", {
-      model: l.model ? [l.model] : [], effort: [], start: l.startedAt || null,
-      end: l.endedAt || null,
-      durationS: l.startedAt && l.endedAt ? Math.round((new Date(l.endedAt) - new Date(l.startedAt)) / 1000) : null,
-      apiCalls: 0, userMsgs: 0,
-      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
-      costOwn: l.reported?.costUsd ?? l.costUsd ?? 0, costParts: ZERO_PARTS(),
-      costConfidence: (l.reported?.costUsd ?? l.costUsd) != null ? "reported" : "n/a",
-      unknownModels: [], identity: {},
-    }, [], { ...extra, provider: l.provider || "claude" });
-  }
 
   function finish(agent, description, agentId, via, st, children, extra, tuid) {
     children.sort((a, b) => ((a.start || "") < (b.start || "") ? -1 : 1));
     // Turns arrive from the parser with an empty subagents array, because only
-    // here are both the turn index and the child nodes in hand. graft()'s
-    // ledger-only st is truthy and has no turns at all, hence the guarded read.
+    // here are both the turn index and the child nodes in hand. A node built for
+    // a file that does not exist has no st at all, hence the guarded read.
     const turns = (st && st.turns) || [];
     // A turn is only ever "human" on the root transcript: a subagent's opening
     // prompt is the parent's errand, and the parser cannot tell the difference
@@ -152,8 +128,8 @@ export function buildTree(sessionPath, cache = new Map()) {
     // Human effort belongs to the session a person typed into: a subagent's
     // "user message" is its parent's errand, so only a root node keeps the
     // parser's count. This is the single place root-ness is enforced, and the
-    // `via` conjunct is what does the work — graft()'s ledger-only leaf passes a
-    // truthy synthetic `st` that simply has no humanMsgs key.
+    // `via` conjunct is what does the work: a leaf built from an outside
+    // provider's data passes a truthy synthetic `st` with no humanMsgs key.
     const hm = via === "root" && st ? (st.humanMsgs || 0) : 0;
     const calls = st ? st.apiCalls : 0;
     // total is the rolled-up cost already shown everywhere; calls stay root-only.
