@@ -499,11 +499,12 @@ table.sub-tt tr[data-depth]>td{background:none}
    what keeps the scroller on the wrapper, the way #twrap does for the big table. */
 #turns{padding:0;border:0;border-radius:12px;background:var(--card);color:var(--tx);
  box-shadow:0 14px 44px rgba(11,11,11,.22);display:flex;flex-direction:column;overflow:hidden;
- max-height:82vh;max-width:min(96vw,1180px)}
+ max-height:86vh;width:min(96vw,1500px);max-width:96vw}
 #turns::backdrop{background:rgba(11,11,11,.34)}
 #turns:focus{outline:none}
 .tp-head{display:flex;align-items:baseline;gap:.7em;flex:0 0 auto;padding:.7em .9em;
- background:#f7f7f5;border-bottom:1px solid var(--line)}
+ background:#f7f7f5;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:3}
+.tp-x{position:relative;z-index:4}
 .tp-head b{font-size:13.5px;font-weight:700;letter-spacing:-.01em}
 .tp-sum{color:var(--mut);font-size:11.5px;font-variant-numeric:tabular-nums}
 .tp-x{margin-left:auto;align-self:center;background:none;border:none;padding:0;font:inherit;
@@ -1471,6 +1472,11 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   if(e.target===dlg)closeTurns();
  });
  dlg.addEventListener('keydown',function(e){ if(e.key==='Escape')closeTurns(); });
+ document.addEventListener('click',function(e){
+  if(!topen||!e.target.closest)return;
+  if(e.target.closest('.tp-x')){ e.preventDefault(); closeTurns(); }
+ },true);                          // capture: nothing downstream can swallow it
+ document.addEventListener('keydown',function(e){ if(topen&&e.key==='Escape')closeTurns(); });
  // ---- breakdown: where the money (or the tokens, or the time) actually went ----
  // main is counted as one more row. It is not a subagent, but it burns real
  // tokens — a quarter of the bill in a typical session — so leaving it out
