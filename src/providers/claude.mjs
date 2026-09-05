@@ -77,6 +77,12 @@ export function buildTree(sessionPath, cache = new Map()) {
     const metas = exists ? readMetas(file) : [];
     const launches = exists ? readLaunches(file) : [];
     const children = [];
+    // Every harness sidecar in this file, indexed by the id that becomes the
+    // child node's agentId, so finish() can join a child back to the turn whose
+    // tool_use spawned it. One map per file covers every depth: sub() only ever
+    // attaches metas from this same list.
+    const tuid = new Map();
+    for (const m of metas) if (m.meta.toolUseId) tuid.set(m.id, m.meta.toolUseId);
     // harness subagents (depth-1 roots of this file; deeper via parentAgentId)
     const attach = (parentKey) => metas
       .filter(m => (parentKey === null ? m.meta.spawnDepth === 1 : m.meta.parentAgentId === parentKey));
@@ -84,11 +90,11 @@ export function buildTree(sessionPath, cache = new Map()) {
       const s = fs.existsSync(m.jsonl) ? parserFor(m.jsonl).aggregates() : null;
       const kids = attach(m.id).map(sub);
       for (const l of launches.filter(x => (x.parentAgent || null) === m.id)) kids.push(graft(l));
-      return finish(m.meta.agentType, m.meta.description, m.id, "harness", s, kids, {});
+      return finish(m.meta.agentType, m.meta.description, m.id, "harness", s, kids, {}, tuid);
     };
     for (const m of attach(null)) children.push(sub(m));
     for (const l of launches.filter(x => !x.parentAgent)) children.push(graft(l));
-    return finish(agent, description, agentId, via, st, children, extra || {});
+    return finish(agent, description, agentId, via, st, children, extra || {}, tuid);
   }
 
   function graft(l) {
@@ -108,8 +114,32 @@ export function buildTree(sessionPath, cache = new Map()) {
     }, [], { ...extra, provider: l.provider || "claude" });
   }
 
-  function finish(agent, description, agentId, via, st, children, extra) {
+  function finish(agent, description, agentId, via, st, children, extra, tuid) {
     children.sort((a, b) => ((a.start || "") < (b.start || "") ? -1 : 1));
+    // Turns arrive from the parser with an empty subagents array, because only
+    // here are both the turn index and the child nodes in hand. graft()'s
+    // ledger-only st is truthy and has no turns at all, hence the guarded read.
+    const turns = (st && st.turns) || [];
+    // A harness child records the tool_use that spawned it on its sidecar, so it
+    // joins exactly. A CLI child is launched by an outside process and records
+    // nothing, so it falls back to the last turn that had already opened when the
+    // child started, and says so with "inferred". The fallback is a prefix, not
+    // clock containment: a turn closes at its last API call and an external
+    // launch routinely happens after that, which is why containment matched 0 of
+    // the corpus's 2 real CLI children. st.turnByToolUse is consumed here and
+    // never copied onto the node.
+    const byTU = (st && st.turnByToolUse) || null;
+    for (const c of children) {
+      const id = tuid && c.agentId != null ? tuid.get(c.agentId) : undefined;
+      let t = null, match = "exact";
+      if (id != null && byTU && byTU.has(id)) t = turns[byTU.get(id) - 1] || null;
+      if (!t && c.start) {
+        match = "inferred";
+        for (const cand of turns)
+          if (cand.start <= c.start && (!t || cand.ordinal > t.ordinal)) t = cand;
+      }
+      if (t) t.subagents.push({ agentId: c.agentId, agent: c.agent, start: c.start, match });
+    }
     const childUsd = children.reduce((a, c) => a + c.cost.total, 0);
     const own = st ? st.costOwn : 0;
     const conf = st ? st.costConfidence : "n/a";
@@ -138,6 +168,8 @@ export function buildTree(sessionPath, cache = new Map()) {
                  identity: {}, unknownModels: [], skills: [], branch: null,
                  cwd: null, version: null, repo: null }),
       humanMsgs: hm,
+      decisions: via === "root" && st ? (st.decisions || 0) : 0,
+      interactions: via === "root" && st ? (st.interactions || []) : [],
       costPerHumanMsg: hm ? +(total / hm).toFixed(4) : null,
       callsPerHumanMsg: hm ? +(calls / hm).toFixed(4) : null,
       ...("phase" in extra && extra.phase !== undefined ? { phase: extra.phase } : {}),
@@ -145,6 +177,7 @@ export function buildTree(sessionPath, cache = new Map()) {
       ...(extra.reported ? { reported: extra.reported } : {}),
       cost: { own: +own.toFixed(4), children: +childUsd.toFixed(4),
               total, confidence: conf },
+      turns,
       children,
     };
   }

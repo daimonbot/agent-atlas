@@ -29,6 +29,7 @@ Web view: `/` session list · `/session/<id>` agent table — both with stat
 tiles, sortable columns, searchable filters, and cost split per token class ·
 `/api/sessions`, `/api/tree/<id>` JSON. With `--token X` every request must
 carry `?t=X` (use it if you bind beyond localhost).
+Flow cards open a per-turn detail panel · every `/api/tree/<id>` node carries `turns`.
 
 ## Live sessions
 

@@ -485,6 +485,44 @@ table.sub-tt tr[data-depth]>td{background:none}
 .fw-gap::before{content:"";position:absolute;top:0;bottom:0;left:1.6em;border-left:2px dotted #d3d7dd}
 .fw-gap span{background:var(--bg);color:var(--dim);font-size:10.5px;padding:0 .5em;margin-left:.5em;
  position:relative;left:-.2em}
+/* ---- turn panel ---- */
+/* The panel is a bounded column that does not itself scroll. The UA sheet gives a
+   modal dialog element its own overflow:auto, so under a max-height #turns would
+   become the scroll container, .tp-wrap would never scroll, and .tp-head — the summary
+   and the close button — would scroll out of view with the sticky th then stuck
+   to the wrong scrollport. overflow:hidden here plus min-height:0 on .tp-wrap is
+   what keeps the scroller on the wrapper, the way #twrap does for the big table. */
+#turns{padding:0;border:0;border-radius:12px;background:var(--card);color:var(--tx);
+ box-shadow:0 14px 44px rgba(11,11,11,.22);display:flex;flex-direction:column;overflow:hidden;
+ max-height:82vh;max-width:min(96vw,1180px)}
+#turns::backdrop{background:rgba(11,11,11,.34)}
+#turns:focus{outline:none}
+.tp-head{display:flex;align-items:baseline;gap:.7em;flex:0 0 auto;padding:.7em .9em;
+ background:#f7f7f5;border-bottom:1px solid var(--line)}
+.tp-head b{font-size:13.5px;font-weight:700;letter-spacing:-.01em}
+.tp-sum{color:var(--mut);font-size:11.5px;font-variant-numeric:tabular-nums}
+.tp-x{margin-left:auto;align-self:center;background:none;border:none;padding:0;font:inherit;
+ font-size:15px;line-height:1;color:var(--mut);cursor:pointer;border-radius:6px;
+ min-width:24px;min-height:24px}
+.tp-x:hover{background:#ececea;color:var(--tx)}
+.tp-x:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+/* both axes: td is nowrap globally and the tokens cell is four nowrap groups, so
+   the free-text columns are the ones that would fall off the right edge */
+.tp-wrap{flex:1 1 auto;min-height:0;overflow:auto}
+table.tp td{vertical-align:top}
+table.tp td:first-child{color:var(--dim);font-weight:650}
+table.tp .fw-line{margin-left:0;gap:.6em}
+table.tp .tp-w{color:var(--dim);margin-left:.45em}
+.tp-note{flex:0 0 auto;padding:.55em .9em .65em;background:#f7f7f5;
+ border-top:1px solid var(--line2);color:var(--mut);font-size:10.5px}
+/* the feature's only entry point, in a row of quiet static spans: same UA reset
+   and the same two signals — colour and weight — that .bd-more and .fw-open use.
+   font:inherit is a shorthand and resets font-weight, so it comes first. */
+.fw-turns{background:var(--accbg);border:1px solid #c9dcf5;border-radius:5px;padding:0 .4em;
+ font:inherit;font-size:10.5px;font-weight:650;color:var(--acc);cursor:pointer;line-height:1.5}
+.fw-turns::before{content:"▤ ";font-size:9px}
+.fw-turns:hover{background:#dbe9fb;border-color:var(--acc)}
+.fw-turns:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}
 /* narrower viewports: tighten the two elastic columns and the gutters before
    falling back to the horizontal scroll #twrap still provides */
 @media (max-width:1500px){
@@ -521,10 +559,11 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
       tip ? ` title="${esc(tip)}"` : ""}>` +
     `${esc(label)}${sortable ? `<span class=arr></span>` : ""}</th>`).join("");
 
-  const sum = { cost: 0, agents: 0, calls: 0, ams: 0, t: { in: 0, out: 0, cr: 0, cw: 0 },
+  const sum = { cost: 0, agents: 0, calls: 0, ams: 0, hm: 0, t: { in: 0, out: 0, cr: 0, cw: 0 },
                 d: { in: 0, out: 0, cr: 0, cw: 0 } };
   for (const r of rows) {
     sum.cost += r.cost; sum.agents += r.agents; sum.calls += r.apiCalls || 0; sum.ams += r.agentMs || 0;
+    sum.hm += r.humanMsgs || 0;
     for (const [m] of METRICS) { sum.t[m] += (r.tokens || {})[m] || 0;
                                  sum.d[m] += (r.tokenCost || {})[m] || 0; }
   }
@@ -573,6 +612,10 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   <span class=sub><span id=k-n>${rows.length}</span> sessions</span></div>
  <div class=tile><span class=lbl>Avg / session</span><b id=k-avg>${usd(rows.length ? sum.cost / rows.length : 0)}</b>
   <span class=sub>median <span id=k-med>${usd(median)}</span></span></div>
+ <div class=tile title="${esc(HM_TIP)}"><span class=lbl>Human messages</span>
+  <b id=k-hm>${num(sum.hm)}</b>
+  <span class=sub><span id=k-hmcost>${usd(sum.hm ? sum.cost / sum.hm : 0)}</span>/msg · <span
+   id=k-hmcalls>${sum.hm ? (sum.calls / sum.hm).toFixed(1) : "0.0"}</span> calls/msg</span></div>
  <div class=tile title="wall clock summed per subagent across the visible sessions">
   <span class=lbl>Agents</span><b id=k-agents>${num(sum.agents)}</b>
   <span class=sub><span id=k-calls>${num(sum.calls)}</span> API calls · <span id=k-ams>${
@@ -710,7 +753,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   [].forEach.call(document.querySelectorAll('.rbtn'),function(b){
    b.classList.toggle('on',!f&&!tt&&+b.dataset.r===range); });
   rows.sort(cmp);
-  var vis=[], shown=[], cost=0, agents=0, calls=0, ams=0, tok={}, tc={};
+  var vis=[], shown=[], cost=0, agents=0, calls=0, ams=0, hm=0, tok={}, tc={};
   METRICS.forEach(function(m){tok[m]=0;tc[m]=0});
   rows.forEach(function(r){
    var d=r.dataset;
@@ -720,7 +763,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
    tb.appendChild(r);
    if(!ok)return;
    shown.push(d);
-   vis.push(+d.cost); cost+=+d.cost; agents+=+d.agents; calls+=+d.calls; ams+=+d.ams;
+   vis.push(+d.cost); cost+=+d.cost; agents+=+d.agents; calls+=+d.calls; ams+=+d.ams; hm+=+d.hm;
    METRICS.forEach(function(m){tok[m]+=+d[m]; tc[m]+=+d[m+'usd'];});
   });
   drawBreakdown(shown);
@@ -731,6 +774,9 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
   $('k-med').textContent=n?usd(vis[n>>1]):'—';
   $('k-agents').textContent=agents; $('k-calls').textContent=calls.toLocaleString('en');
   $('k-ams').textContent=ams>=3600000?(ams/3600000).toFixed(1)+'h':Math.round(ams/60000)+'m';
+  $('k-hm').textContent=hm.toLocaleString('en');
+  $('k-hmcost').textContent=hm?usd(cost/hm):'$0.00';
+  $('k-hmcalls').textContent=hm?(calls/hm).toFixed(1):'0.0';
   METRICS.forEach(function(m){$('k-'+m).textContent=kTok(tok[m]); $('k-'+m+'usd').textContent=usd(tc[m]);});
   [].forEach.call(document.querySelectorAll('#tt th[data-c]'),function(th){
    var on=+th.dataset.c===sortCol;
@@ -886,9 +932,31 @@ export function treeHTML(tree, opts = {}) {
   }
   const body = render(tree, 0, null, true);
 
+  // A turn, positionally, like everything else in `flat`:
+  //   [ord, s, e, calls, usd, [in,out,cr,cw], [$in,$out,$cr,$cw], skills, subs, tools]
+  // The last three are dropped when they and everything after them are empty, so a
+  // plain read-only turn costs 7 elements. Money is rounded to 6 dp: usd() never
+  // prints more than 4, so it is lossless for every rendered figure and it is what
+  // keeps the page growth at ~18% with ~191 turns on the page.
+  const r6 = x => +(+(x || 0)).toFixed(6);
+  const bare = v => Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0;
+  const turnsOf = n => (n.turns || []).map(t => {
+    const row = [t.ordinal, Date.parse(t.start), Date.parse(t.end), t.apiCalls, r6(t.cost),
+      [t.tokens.input, t.tokens.output, t.tokens.cacheRead,
+        t.tokens.cacheWrite5m + t.tokens.cacheWrite1h],
+      [r6(t.costParts.in), r6(t.costParts.out), r6(t.costParts.cr), r6(t.costParts.cw)]];
+    const sk = t.skills || [], tl = t.tools || {};
+    const sb = (t.subagents || []).map(s => [keyOf(s), s.match === "exact" ? 1 : 0]);
+    if (!bare(tl)) row.push(sk, sb, tl);
+    else if (!bare(sb)) row.push(sk, sb);
+    else if (!bare(sk)) row.push(sk);
+    return row;
+  });
+
   const flat = [];
   (function walk(n, depth, parent) {
     const a = agg.get(n);
+    const tn = turnsOf(n);
     flat.push({ k: keyOf(n), p: parent, d: depth, a: n.agent,
       t: n.description || "", s: n.start ? Date.parse(n.start) : null,
       e: n.end ? Date.parse(n.end) : null, c: n.cost.total, o: n.cost.own,
@@ -897,7 +965,7 @@ export function treeHTML(tree, opts = {}) {
       dl: [a.own.d.in, a.own.d.out, a.own.d.cr, a.own.d.cw],
       TK: [a.tot.t.in, a.tot.t.out, a.tot.t.cr, a.tot.t.cw],
       DL: [a.tot.d.in, a.tot.d.out, a.tot.d.cr, a.tot.d.cw],
-      cli: n.via === "cli" ? 1 : 0 });
+      cli: n.via === "cli" ? 1 : 0, ...(tn.length ? { tn } : {}) });
     for (const c of n.children) walk(c, depth + 1, keyOf(n));
   })(tree, 0, null);
 
@@ -941,7 +1009,9 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   <span class=sub>${t.durationS ? "×" + (aMs / 1000 / t.durationS).toFixed(1) + " of the session" : "—"}</span></div>
  <div class=tile title="${esc(HM_TIP)}"><span class=lbl>Human messages</span><b>${num(t.humanMsgs)}</b>
   <span class=sub>${t.costPerHumanMsg !== null
-   ? `${usd(t.costPerHumanMsg)}/msg · ${t.callsPerHumanMsg.toFixed(1)} calls/msg` : "—"}</span></div>
+   ? `${usd(t.costPerHumanMsg)}/msg · ${t.callsPerHumanMsg.toFixed(1)} calls/msg` : "—"}</span>
+  ${t.decisions ? `<span class=sub title="answers to AskUserQuestion — the run stopped and waited for a person">${
+   t.decisions} decision${t.decisions === 1 ? "" : "s"}</span>` : ""}</div>
  <div class=tile><span class=lbl>Model</span><b>${esc(shortModel(t.model.slice(0, 1)))}</b>
   <span class=sub>${esc(t.effort.join(",") || "—")}</span></div>
 </div>
@@ -961,6 +1031,7 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
 <table class="tt" id=tt><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div></div>
 <div id=v-trace class="view card"><div id=trace></div></div>
 <div id=v-flow class="view card"><div id=flow></div></div>
+<dialog id=turns aria-labelledby=tp-name tabindex="-1"></dialog>
 <script type="application/json" id=nodes>${JSON.stringify(flat).replace(/</g, "\\u003c")}</script>
 <script>
 (function(){
@@ -1187,6 +1258,10 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  }
  function card(n){
   var sub=kidsOf(n).length, open=!!fopen[n.k]&&!filtering();
+  // the turn count is both the figure and the control: emitted on turn count alone,
+  // so a leaf card and a parent card get the identical affordance. The title is what
+  // stops .fw-box's own tip(n) surfacing over the button on hover.
+  var N=(n.tn||[]).length, TL=N+' turn'+(N===1?'':'s'), TN=TL+' — '+esc(n.a);
   return '<div class="fw-box'+(sub?' has':'')+(open?' open':'')+'" data-k="'+esc(n.k)+'"'+
    ' title="'+esc(tip(n))+'">'+
    '<div class=fw-name>'+(n.cli?'<span class="badge cli">CLI</span>':'')+
@@ -1194,7 +1269,10 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
    '<div class=fw-task>'+esc(n.t||'—')+'</div>'+
    '<div class=fw-meta><span class=fw-model>'+esc(n.m)+
     (n.ef?'<em>'+esc(n.ef)+'</em>':'')+'</span>'+
-    '<span>'+dur(n.e-n.s)+'</span><span>'+n.n+' calls</span></div>'+
+    '<span>'+dur(n.e-n.s)+'</span>'+
+    (N>0?'<button type=button class="fw-turns" data-k="'+esc(n.k)+'" title="'+TN+
+      '" aria-label="'+TN+'">'+TL+'</button>':'')+
+    '<span>'+n.n+' calls</span></div>'+
    '<div class=fw-clock>'+when(n.s,n.e)+'</div>'+
    breakdown(n.tk,n.dl,'fw-bd box')+
    (sub?'<div class=fw-subs><div class=fw-open>'+(open?'▾':'▸')+' '+sub+' subagent'+
@@ -1252,6 +1330,85 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
    usd(ROOT.o+top)+'</b></span></div>');
   document.getElementById('flow').innerHTML=out.join('');
  }
+ // ---- per-turn detail: one dialog, one open agent, and the key is the whole state ----
+ // A card's turn count opens this. It is a detail view over exactly one agent: the
+ // body is re-derived from BYK[topen] and from nothing else, so it can never hold a
+ // union of two agents' turns.
+ var topen=null, tdrawn=null, tdown=false, dlg=document.getElementById('turns');
+ function turnPanel(n){
+  var tn=n.tn||[], calls=0, inf=false;
+  var body=tn.map(function(t){
+   calls+=t[3];
+   var sk=(t[7]||[]).map(function(s){return esc(s);}).join(' ');
+   var sb=(t[8]||[]).map(function(p){
+    if(!p[1])inf=true;                          // matched by start time, not by a tool call
+    return esc(BYK[p[0]]?BYK[p[0]].a:p[0])+(p[1]?'':'~');
+   }).join(' ');
+   var tl=t[9]||{};
+   var tc=Object.keys(tl).map(function(x){ return esc(x)+'×'+tl[x]; }).join(' ');
+   return '<tr><td>'+t[0]+'</td>'+
+    '<td>'+when(t[1],t[2])+'<span class=tp-w>'+dur(t[2]-t[1])+'</span></td>'+
+    '<td class=r>'+t[3]+'</td><td class="r money">'+usd(t[4])+'</td>'+
+    '<td>'+inline(t[5],t[6])+'</td>'+
+    '<td>'+sk+'</td><td>'+sb+'</td><td>'+tc+'</td></tr>';
+  }).join('');
+  // turns and calls are summed over the rows below, never read off n.n, so the
+  // summary cannot silently disagree with the table it heads. At one turn the
+  // calls/turn term just restates the call count two figures to its left.
+  var sum=tn.length+' turn'+(tn.length===1?'':'s')+' · '+calls+' call'+(calls===1?'':'s')+
+   ' · '+usd(n.o)+(tn.length>1?' · '+(calls/tn.length).toFixed(1)+' calls/turn':'');
+  return '<div class=tp-head><b id=tp-name>'+esc(n.a)+'</b>'+
+    '<span class=tp-sum>'+sum+'</span>'+
+    '<button type=button class="tp-x" aria-label="Close">×</button></div>'+
+   '<div class=tp-wrap><table class=tp><thead><tr><th>#</th><th>window</th>'+
+    '<th class=r>calls</th><th class=r>cost</th><th>tokens</th><th>skills</th>'+
+    '<th>subagents</th><th>tools</th></tr></thead><tbody>'+body+'</tbody></table></div>'+
+   // sibling of the scroller, not inside it: a legend for a ~ seen at row 3 must not
+   // sit below row 60
+   (inf?'<div class=tp-note>~ matched to this turn by start time, not by the tool '+
+     'call that launched it</div>':'');
+ }
+ function drawTurns(){
+  var n=BYK[topen];
+  if(!n){ closeTurns(); return; }
+  var html=turnPanel(n);
+  if(html===tdrawn)return;         // unchanged: no DOM write at all, so a user reading
+                                   // turn 42 keeps their scroll, focus and selection
+  var w=dlg.querySelector('.tp-wrap');
+  var y=tdrawn===null?0:(w?w.scrollTop:0);   // a fresh panel opens at the top
+  dlg.innerHTML=html; tdrawn=html;
+  w=dlg.querySelector('.tp-wrap'); if(w)w.scrollTop=y;
+ }
+ function openTurns(k){
+  topen=k; tdrawn=null;            // fresh panel: drop the cache, start at row 1
+  drawTurns();
+  if(!dlg.open)dlg.showModal();    // showModal() on an already-open dialog throws
+  dlg.focus();                     // so the dialog announces its agent, not its Close
+ }
+ function closeTurns(){
+  var k=topen;                     // capture first: the key is what finds the button back
+  topen=null; tdrawn=null;
+  if(dlg.open)dlg.close();
+  var b=k?document.querySelector('.fw-turns[data-k="'+k+'"]'):null;
+  // tick() redraws #flow while the panel is open and detaches the button showModal()
+  // recorded, so dlg.close() drops focus on <body> at the top of the document. Fall
+  // back to the Flow tab: a native button, announced, and outside every region tick()
+  // rewrites. (#flow itself is a plain div with no tabindex — focusing it moves nothing.)
+  if(!b)b=document.querySelector('.tab[data-v=flow]');
+  if(b)b.focus();
+ }
+ // The platform closes a showModal() dialog on Escape and fires 'cancel' as it does,
+ // so that event IS this panel's Escape-keyed close path and no keydown listener
+ // exists. Nothing here may preventDefault(): that would suppress the close itself.
+ dlg.addEventListener('cancel',function(e){ closeTurns(); });
+ dlg.addEventListener('mousedown',function(e){ tdown=(e.target===dlg); });
+ dlg.addEventListener('click',function(e){
+  if(e.target.closest&&e.target.closest('.tp-x')){ closeTurns(); return; }
+  // #turns carries no padding and no border, so a click on the dialog element itself
+  // is a backdrop click. It must have started there too: a drag from a cost cell that
+  // releases outside is a user selecting a figure to copy, not asking to close.
+  if(e.target===dlg&&tdown)closeTurns();
+ });
  // ---- breakdown: where the money (or the tokens, or the time) actually went ----
  // main is counted as one more row. It is not a subagent, but it burns real
  // tokens — a quarter of the bill in a typical session — so leaving it out
@@ -1307,7 +1464,8 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
    b.classList.toggle('on',b.dataset.v===v); });
   document.getElementById('leg').textContent=v==='costs'
    ? 'collapsed = subtree total · expanded = this agent only'
-   : (v==='trace'?'drag across the tracks to zoom':'click an agent to open its subagents');
+   : (v==='trace'?'drag across the tracks to zoom'
+      :'click an agent to open its subagents · click its turn count for per-turn detail');
   if(v==='trace')drawTrace(); if(v==='flow')drawFlow();
   var u=new URL(location.href);
   v==='flow'?u.searchParams.delete('view'):u.searchParams.set('view',v);
@@ -1317,6 +1475,10 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   b.onclick=function(){ setView(b.dataset.v); }; });
  document.addEventListener('click',function(e){
   if(!e.target.closest)return;
+  var tb=e.target.closest('.fw-turns');
+  if(tb){ openTurns(tb.dataset.k); return; }   // the return is what keeps the two card
+                                               // actions independent: the .fw-box.has
+                                               // probe below is never reached for it
   var r=e.target.closest('.tl-row.has');
   if(r){ var k=r.dataset.k; vopen[k]?delete vopen[k]:vopen[k]=1; drawTrace(); return; }
   if(view!=='flow')return;
@@ -1342,6 +1504,8 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
     if(TB>=T0+SPAN){ TB=ROOT.s+nspan; }        // keep the window pinned to "now" unless zoomed
     T0=ROOT.s; SPAN=nspan;
     if(view==='trace')drawTrace(); else if(view==='flow')drawFlow();
+    if(topen)drawTurns();                      // the open panel live-updates: only the
+                                               // key is stored, so tick() never reassigns it
    }
    var open={},y=window.scrollY;
    rows.forEach(function(r){if(r.dataset.open==='1')open[r.dataset.key]=1});
