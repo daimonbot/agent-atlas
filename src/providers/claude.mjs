@@ -58,11 +58,47 @@ function readLaunches(f) {
   return out;
 }
 
+// finish()'s own display order: children ascending by start. Extracted so the
+// codex leaves added after a parent is finished can restore exactly that order.
+const byStart = (a, b) => ((a.start || "") < (b.start || "") ? -1 : 1);
+
+/**
+ * Total order over the (record, owning-file) candidates for one codex uuid inside
+ * one tree: anchored beats unanchored, then larger tokensUsed, then earlier start,
+ * then the lexicographically smaller owning-file path. The last key is total, so
+ * the winner is unique and is a pure function of the tree's bytes -- never of
+ * fs.readdirSync() iteration order. Returns true iff "a" strictly beats "b".
+ */
+function codexWins(a, af, b, bf) {
+  if (a.anchored !== b.anchored) return a.anchored;
+  const at = a.tokensUsed ?? -1, bt = b.tokensUsed ?? -1;
+  if (at !== bt) return at > bt;
+  if ((a.start || null) !== (b.start || null)) {
+    if (!a.start) return false;                 // a record with a start beats a null one
+    if (!b.start) return true;
+    return a.start < b.start;
+  }
+  return af < bf;
+}
+
 /**
  * Build the full agent tree for a session file.
  * cache: Map<path, SessionFileParser> shared across calls -> incremental parsing.
  */
 export function buildTree(sessionPath, cache = new Map()) {
+  // uuid -> the winning candidate so far: its record, its owning file, and the
+  // children array of the node it would hang under. Per call, never process-global.
+  const codexOwners = new Map();
+  const claimCodex = (file, st, kids) => {
+    if (!st || !st.codex) return;
+    const abs = path.resolve(file);
+    for (const d of st.codex) {
+      const prev = codexOwners.get(d.sessionId);
+      if (!prev || codexWins(d, abs, prev.d, prev.file))
+        codexOwners.set(d.sessionId, { d, file: abs, kids });
+    }
+  };
+
   const parserFor = p => {
     let ps = cache.get(p);
     if (!ps) { ps = new SessionFileParser(p); cache.set(p, ps); }
@@ -83,10 +119,12 @@ export function buildTree(sessionPath, cache = new Map()) {
       const s = fs.existsSync(m.jsonl) ? parserFor(m.jsonl).aggregates() : null;
       const kids = attach(m.id).map(sub);
       for (const l of launches.filter(x => (x.parentAgent || null) === m.id)) kids.push(graft(l));
+      claimCodex(m.jsonl, s, kids);
       return finish(m.meta.agentType, m.meta.description, m.id, "harness", s, kids, {});
     };
     for (const m of attach(null)) children.push(sub(m));
     for (const l of launches.filter(x => !x.parentAgent)) children.push(graft(l));
+    claimCodex(file, st, children);
     return finish(agent, description, agentId, via, st, children, extra || {});
   }
 
@@ -107,8 +145,33 @@ export function buildTree(sessionPath, cache = new Map()) {
     }, [], { ...extra, provider: l.provider || "claude" });
   }
 
+  // A codex session detected in a transcript: same leaf shape a ledger-declared
+  // non-claude launch already produces, from transcript evidence instead of the
+  // ledger. No dollar figure is invented -- the stub knows neither Codex's price
+  // nor the session's auth mode, so cost stays 0 / "n/a".
+  function codexLeaf(d) {
+    const reported = {};
+    if (d.tokensUsed   != null) reported.tokensUsed   = d.tokensUsed;
+    if (d.sandbox      != null) reported.sandbox      = d.sandbox;
+    if (d.workdir      != null) reported.workdir      = d.workdir;
+    if (d.approval     != null) reported.approval     = d.approval;
+    if (d.codexVersion != null) reported.codexVersion = d.codexVersion;
+    return finish("codex",
+      d.workdir ? (d.workdir.replace(/\/+$/, "").split("/").pop() || null) : null,
+      d.sessionId, "cli", {
+        model: d.model ? [d.model] : [], effort: d.effort ? [d.effort] : [],
+        start: d.start, end: d.end,
+        durationS: d.start && d.end ? Math.round((new Date(d.end) - new Date(d.start)) / 1000) : null,
+        apiCalls: 0, userMsgs: 0,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+        costOwn: 0, costConfidence: "n/a",
+        unknownModels: [], identity: {},
+      }, [], { provider: "codex",
+               reported: Object.keys(reported).length ? reported : undefined });
+  }
+
   function finish(agent, description, agentId, via, st, children, extra) {
-    children.sort((a, b) => ((a.start || "") < (b.start || "") ? -1 : 1));
+    children.sort(byStart);
     const childUsd = children.reduce((a, c) => a + c.cost.total, 0);
     const own = st ? st.costOwn : 0;
     const conf = st ? st.costConfidence : "n/a";
@@ -134,6 +197,16 @@ export function buildTree(sessionPath, cache = new Map()) {
 
   const base = path.basename(sessionPath, ".jsonl");
   const t = node("main", "(sesión)", base, sessionPath, "root");
+  // Ownership can only be decided once every file of the tree has competed, so the
+  // leaves land after their parent was finished. Safe: a codex leaf's cost.total is
+  // always 0, so no roll-up computed above moves; the re-sort restores byStart.
+  const touched = new Set();
+  for (const k of [...codexOwners.keys()].sort()) {
+    const o = codexOwners.get(k);
+    o.kids.push(codexLeaf(o.d));
+    touched.add(o.kids);
+  }
+  for (const kids of touched) kids.sort(byStart);
   if (t.identity?.agentName) t.agent = t.identity.agentName;
   else if (t.identity?.customTitle) t.agent = t.identity.customTitle;
   return t;
