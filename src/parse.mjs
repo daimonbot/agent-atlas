@@ -188,7 +188,12 @@ export class SessionFileParser {
       // uuid rides along on the winning variant: it is the only link from a
       // deduped API call back to its record, and therefore back to its turn.
       if (!prev || tot > prev.tot)
-        this.seen.set(m.id, { tot, u, model: m.model, ts: o.timestamp, uuid: o.uuid });
+        this.seen.set(m.id, { tot, u, model: m.model, ts: o.timestamp, uuid: o.uuid,
+          acts: (Array.isArray(c) ? c : []).filter(b => b.type === "tool_use")
+            .map(b => ({ name: this.#intern(b.name || "?"), id: b.id ?? null,
+              skill: b.name === "Skill" && b.input?.skill ? this.#intern(b.input.skill) : null,
+              task: b.name === "Task" || b.name === "Agent"
+                ? String(b.input?.description || b.input?.subagent_type || "").slice(0, 80) : null })) });
     }
   }
 
@@ -333,11 +338,32 @@ export class SessionFileParser {
 
     const turnByToolUse = new Map();
     for (const [id, pid] of idTurn) turnByToolUse.set(id, ordOf.get(pid));
-    return { turns, turnByToolUse };
+    return { turns, turnByToolUse, turnOf };
+  }
+
+  /** Every API call this file made, chronological, with what it asked for. */
+  #calls(turnOf) {
+    const out = [];
+    for (const [id, v] of this.seen) {
+      const r = priceClaude(v.model, v.ts, v.u);
+      out.push({ id, ts: v.ts, cost: r.usd, model: v.model, pid: turnOf(v.uuid),
+        tokens: { in: v.u.in, out: v.u.out, cr: v.u.cr, cw: v.u.c5 + v.u.c1h },
+        costParts: r.parts, acts: v.acts || [] });
+    }
+    out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+    let prev = null;
+    for (const k of out) {
+      k.opensHuman = k.pid != null && k.pid !== prev && this.humanTurns.has(k.pid);
+      k.gates = k.pid == null ? 0
+        : this.interactions.filter(x => this.gateTurn.get(x.id) === k.pid && k.pid !== prev).length;
+      prev = k.pid;
+      delete k.pid;
+    }
+    return out;
   }
 
   aggregates() {
-    const { turns, turnByToolUse } = this.#turns();
+    const { turns, turnByToolUse, turnOf } = this.#turns();
     const t = { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
     const byModel = new Map();      // ranks the model list: busiest first
     let usd = 0; const cp = ZERO_PARTS();
@@ -366,7 +392,7 @@ export class SessionFileParser {
       tokens: t, costOwn: usd, costParts: cp,
       costConfidence: unknown.size ? "partial" : confidence,
       unknownModels: [...unknown], identity: this.identity,
-      turns, turnByToolUse,
+      turns, turnByToolUse, calls: this.#calls(turnOf),
     };
   }
 }

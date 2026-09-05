@@ -531,6 +531,22 @@ table.tp .tp-w{color:var(--dim);margin-left:.45em}
 .tp-t{background:#f2f4f7;color:var(--mut)} .tp-t b{margin-left:.3em;color:var(--tx)}
 .tp-s{background:var(--accbg);color:var(--acc);font-weight:600}
 .tp-k{background:#fffbeb;color:var(--amber);font-weight:600}
+.tp-sep{display:flex;align-items:center;gap:.6em;padding:.45em .8em .2em}
+.tp-sep::before,.tp-sep::after{content:"";flex:1;border-top:1px solid #c9dcf5}
+.tp-sep span{color:var(--acc);font-size:10px;font-weight:700;text-transform:uppercase;
+ letter-spacing:.06em;white-space:nowrap}
+.tp-legend,.tp-row{display:grid;grid-template-columns:2.6em 4.4em 5em 5.2em 1fr;
+ gap:.6em;align-items:baseline;padding:.3em .8em}
+.tp-legend{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);
+ border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}
+.tp-row{font-size:11.5px;border-bottom:1px solid var(--line2)}
+.tp-row:hover{background:#f7f8fa}
+.tp-row .tp-n{background:none;color:var(--dim);font-variant-numeric:tabular-nums;text-align:right;
+ padding:0;font-weight:400}
+.tp-when{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);font-size:11px}
+.tp-cost{font-weight:650;font-variant-numeric:tabular-nums;margin:0}
+.tp-out{color:var(--mut);font-variant-numeric:tabular-nums;font-size:11px}
+.tp-row .tp-acts{display:flex;flex-wrap:wrap;gap:.25em;border:0;margin:0;padding:0}
 .tp-note{flex:0 0 auto;padding:.55em .9em .65em;background:#f7f7f5;
  border-top:1px solid var(--line2);color:var(--mut);font-size:10.5px}
 /* the feature's only entry point, in a row of quiet static spans: same UA reset
@@ -958,6 +974,20 @@ export function treeHTML(tree, opts = {}) {
   // keeps the page growth at ~18% with ~191 turns on the page.
   const r6 = x => +(+(x || 0)).toFixed(6);
   const bare = v => Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0;
+  const callsOf = n => {
+    const cs = n.calls || [];
+    if (!cs.length) return null;
+    const t0 = Date.parse(cs[0].ts);
+    return [t0, cs.map(k => {
+      const acts = (k.acts || []).map(a => a.skill ? ["S", a.skill]
+        : a.task ? ["A", a.name, a.task] : [a.name]);
+      const row = [Date.parse(k.ts) - t0, r6(k.cost), k.tokens.out];
+      if (acts.length || k.opensHuman || k.gates) row.push(acts);
+      if (k.opensHuman || k.gates) row.push((k.opensHuman ? 1 : 0) + (k.gates ? 2 : 0), k.gates || 0);
+      return row;
+    })];
+  };
+
   const turnsOf = n => (n.turns || []).map(t => {
     const row = [t.ordinal, Date.parse(t.start), Date.parse(t.end), t.apiCalls, r6(t.cost),
       [t.tokens.input, t.tokens.output, t.tokens.cacheRead,
@@ -979,6 +1009,7 @@ export function treeHTML(tree, opts = {}) {
   (function walk(n, depth, parent) {
     const a = agg.get(n);
     const tn = turnsOf(n);
+    const cl = callsOf(n);
     flat.push({ k: keyOf(n), p: parent, d: depth, a: n.agent,
       t: n.description || "", s: n.start ? Date.parse(n.start) : null,
       e: n.end ? Date.parse(n.end) : null, c: n.cost.total, o: n.cost.own,
@@ -987,7 +1018,8 @@ export function treeHTML(tree, opts = {}) {
       dl: [a.own.d.in, a.own.d.out, a.own.d.cr, a.own.d.cw],
       TK: [a.tot.t.in, a.tot.t.out, a.tot.t.cr, a.tot.t.cw],
       DL: [a.tot.d.in, a.tot.d.out, a.tot.d.cr, a.tot.d.cw],
-      cli: n.via === "cli" ? 1 : 0, ...(tn.length ? { tn } : {}) });
+      cli: n.via === "cli" ? 1 : 0, ...(tn.length ? { tn } : {}),
+      ...(cl ? { cl } : {}) });
     for (const c of n.children) walk(c, depth + 1, keyOf(n));
   })(tree, 0, null);
 
@@ -1283,7 +1315,7 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   // the turn count is both the figure and the control: emitted on turn count alone,
   // so a leaf card and a parent card get the identical affordance. The title is what
   // stops .fw-box's own tip(n) surfacing over the button on hover.
-  var N=(n.tn||[]).length, TL=N+' turn'+(N===1?'':'s'), TN=TL+' — '+esc(n.a);
+  var N=n.cl?n.cl[1].length:0, TL=N+' call'+(N===1?'':'s'), TN=TL+' — '+esc(n.a);
   return '<div class="fw-box'+(sub?' has':'')+(open?' open':'')+'" data-k="'+esc(n.k)+'"'+
    ' title="'+esc(tip(n))+'">'+
    '<div class=fw-name>'+(n.cli?'<span class="badge cli">CLI</span>':'')+
@@ -1357,42 +1389,37 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
  // body is re-derived from BYK[topen] and from nothing else, so it can never hold a
  // union of two agents' turns.
  var topen=null, tdrawn=null, tdown=false, dlg=document.getElementById('turns');
+ // One row per API call, in the order they happened. A turn grouped calls that
+ // ran without a human in between, which for 77% of agents is all of them — the
+ // grouping said nothing, so the calls speak for themselves.
  function turnPanel(n){
-  var tn=n.tn||[], calls=0, inf=false;
-  var body=tn.map(function(t){
-   calls+=t[3];
-   var sk=(t[7]||[]), sb=(t[8]||[]), tl=t[9]||{}, fl=t[10]||0;
-   var tools=Object.keys(tl).sort(function(a,b){return tl[b]-tl[a];})
-    .map(function(x){ return '<span class=tp-t>'+esc(x)+'<b>'+tl[x]+'</b></span>'; }).join('');
-   var subs=sb.map(function(p){
-    if(!p[1])inf=true;                          // matched by start time, not by a tool call
-    return '<span class=tp-s>'+esc(BYK[p[0]]?BYK[p[0]].a:p[0])+(p[1]?'':'~')+'</span>';
+  var cl=n.cl, t0=cl?cl[0]:0, rows=cl?cl[1]:[], spend=0;
+  var body=rows.map(function(r,ix){
+   spend+=r[1];
+   var acts=(r[3]||[]).map(function(a){
+    if(a[0]==='S')return '<span class=tp-k>⚙ '+esc(a[1])+'</span>';
+    if(a[0]==='A')return '<span class=tp-s>'+esc(a[1])+(a[2]?' · '+esc(a[2]):'')+'</span>';
+    return '<span class=tp-t>'+esc(a[0])+'</span>';
    }).join('');
-   var skills=sk.map(function(x){return '<span class=tp-k>⚙ '+esc(x)+'</span>';}).join('');
-   var tags=((fl&1)?'<span class="tp-b human">human</span>':'')+
-    ((fl&2)?'<span class="tp-b gate">'+t[11]+' decision'+(t[11]===1?'':'s')+'</span>':'');
-   return '<div class=tp-card><div class=tp-c1><span class=tp-n>'+t[0]+'</span>'+
-    '<span class=tp-when>'+when(t[1],t[2])+'</span><span class=tp-w>'+dur(t[2]-t[1])+'</span>'+
-    tags+'<span class=tp-cost>'+usd(t[4])+'</span></div>'+
-    '<div class=tp-c2>'+inline(t[5],t[6])+'<span class=tp-calls>'+t[3]+' calls</span></div>'+
-    (tools||subs||skills
-      ? '<div class=tp-acts>'+skills+tools+subs+'</div>'
-      : '<div class=tp-acts><span class=dim>no tool use recorded</span></div>')+
-    '</div>';
+   var mark='';
+   if(r[4]){
+    var lbl=((r[4]&1)?'human':'')+((r[4]&2)?(r[4]&1?' · ':'')+r[5]+' decision'+(r[5]===1?'':'s'):'');
+    mark='<div class=tp-sep><span>'+lbl+'</span></div>';
+   }
+   return mark+'<div class=tp-row><span class=tp-n>'+(ix+1)+'</span>'+
+    '<span class=tp-when>+'+dur(r[0])+'</span>'+
+    '<span class=tp-cost>'+usd(r[1])+'</span>'+
+    '<span class=tp-out>'+kTok(r[2])+' out</span>'+
+    '<span class=tp-acts>'+(acts||'<span class=dim>—</span>')+'</span></div>';
   }).join('');
-  // turns and calls are summed over the rows below, never read off n.n, so the
-  // summary cannot silently disagree with the table it heads. At one turn the
-  // calls/turn term just restates the call count two figures to its left.
-  var sum=tn.length+' turn'+(tn.length===1?'':'s')+' · '+calls+' call'+(calls===1?'':'s')+
-   ' · '+usd(n.o)+(tn.length>1?' · '+(calls/tn.length).toFixed(1)+' calls/turn':'');
+  var sum=rows.length+' call'+(rows.length===1?'':'s')+' · '+usd(n.o)+
+   ' · '+dur((rows.length?rows[rows.length-1][0]:0));
   return '<div class=tp-head><b id=tp-name>'+esc(n.a)+'</b>'+
     '<span class=tp-sum>'+sum+'</span>'+
     '<button type=button class="tp-x" aria-label="Close">×</button></div>'+
-   '<div class=tp-wrap>'+body+'</div>'+
-   // sibling of the scroller, not inside it: a legend for a ~ seen at row 3 must not
-   // sit below row 60
-   (inf?'<div class=tp-note>~ matched to this turn by start time, not by the tool '+
-     'call that launched it</div>':'');
+   '<div class=tp-wrap><div class=tp-legend><span>#</span><span>when</span>'+
+    '<span>cost</span><span>output</span><span>what it asked for</span></div>'+
+    body+'</div>';
  }
  function drawTurns(){
   var n=BYK[topen];
