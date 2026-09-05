@@ -535,7 +535,7 @@ table.tp .tp-w{color:var(--dim);margin-left:.45em}
 .tp-sep::before,.tp-sep::after{content:"";flex:1;border-top:1px solid #c9dcf5}
 .tp-sep span{color:var(--acc);font-size:10px;font-weight:700;text-transform:uppercase;
  letter-spacing:.06em;white-space:nowrap}
-.tp-legend,.tp-row{display:grid;grid-template-columns:2.6em 4.4em 5em 5.2em 1fr;
+.tp-legend,.tp-row{display:grid;grid-template-columns:2.4em 4.2em 4.6em 3.4em 3.4em 4.2em 4.2em 1fr;
  gap:.6em;align-items:baseline;padding:.3em .8em}
 .tp-legend{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);
  border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}
@@ -545,7 +545,9 @@ table.tp .tp-w{color:var(--dim);margin-left:.45em}
  padding:0;font-weight:400}
 .tp-when{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);font-size:11px}
 .tp-cost{font-weight:650;font-variant-numeric:tabular-nums;margin:0}
-.tp-out{color:var(--mut);font-variant-numeric:tabular-nums;font-size:11px}
+.tp-tk{color:var(--mut);font-variant-numeric:tabular-nums;font-size:11px;text-align:right}
+.tp-t i,.tp-s i,.tp-k i{font-style:normal;font-size:8.5px;text-transform:uppercase;
+ letter-spacing:.05em;opacity:.75;margin-right:.35em;font-weight:700}
 .tp-row .tp-acts{display:flex;flex-wrap:wrap;gap:.25em;border:0;margin:0;padding:0}
 .tp-note{flex:0 0 auto;padding:.55em .9em .65em;background:#f7f7f5;
  border-top:1px solid var(--line2);color:var(--mut);font-size:10.5px}
@@ -981,7 +983,8 @@ export function treeHTML(tree, opts = {}) {
     return [t0, cs.map(k => {
       const acts = (k.acts || []).map(a => a.skill ? ["S", a.skill]
         : a.task ? ["A", a.name, a.task] : [a.name]);
-      const row = [Date.parse(k.ts) - t0, r6(k.cost), k.tokens.out];
+      const row = [Date.parse(k.ts) - t0, r6(k.cost),
+        [k.tokens.in, k.tokens.out, k.tokens.cr, k.tokens.cw]];
       if (acts.length || k.opensHuman || k.gates) row.push(acts);
       if (k.opensHuman || k.gates) row.push((k.opensHuman ? 1 : 0) + (k.gates ? 2 : 0), k.gates || 0);
       return row;
@@ -1397,19 +1400,24 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   var body=rows.map(function(r,ix){
    spend+=r[1];
    var acts=(r[3]||[]).map(function(a){
-    if(a[0]==='S')return '<span class=tp-k>⚙ '+esc(a[1])+'</span>';
-    if(a[0]==='A')return '<span class=tp-s>'+esc(a[1])+(a[2]?' · '+esc(a[2]):'')+'</span>';
-    return '<span class=tp-t>'+esc(a[0])+'</span>';
+    if(a[0]==='S')return '<span class=tp-k><i>skill</i>⚙ '+esc(a[1])+'</span>';
+    if(a[0]==='A')return '<span class=tp-s><i>agent</i>'+esc(a[1])+
+      (a[2]?' · '+esc(a[2]):'')+'</span>';
+    return '<span class=tp-t><i>tool</i>'+esc(a[0])+'</span>';
    }).join('');
    var mark='';
    if(r[4]){
     var lbl=((r[4]&1)?'human':'')+((r[4]&2)?(r[4]&1?' · ':'')+r[5]+' decision'+(r[5]===1?'':'s'):'');
     mark='<div class=tp-sep><span>'+lbl+'</span></div>';
    }
+   var tk=r[2];
    return mark+'<div class=tp-row><span class=tp-n>'+(ix+1)+'</span>'+
-    '<span class=tp-when>+'+dur(r[0])+'</span>'+
+    '<span class=tp-when>'+hhmm(t0+r[0])+'</span>'+
     '<span class=tp-cost>'+usd(r[1])+'</span>'+
-    '<span class=tp-out>'+kTok(r[2])+' out</span>'+
+    '<span class=tp-tk>'+kTok(tk[0])+'</span>'+
+    '<span class=tp-tk>'+kTok(tk[1])+'</span>'+
+    '<span class=tp-tk>'+kTok(tk[2])+'</span>'+
+    '<span class=tp-tk>'+kTok(tk[3])+'</span>'+
     '<span class=tp-acts>'+(acts||'<span class=dim>—</span>')+'</span></div>';
   }).join('');
   var sum=rows.length+' call'+(rows.length===1?'':'s')+' · '+usd(n.o)+
@@ -1418,7 +1426,8 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
     '<span class=tp-sum>'+sum+'</span>'+
     '<button type=button class="tp-x" aria-label="Close">×</button></div>'+
    '<div class=tp-wrap><div class=tp-legend><span>#</span><span>when</span>'+
-    '<span>cost</span><span>output</span><span>what it asked for</span></div>'+
+    '<span>cost</span><span>in</span><span>out</span><span>cache r</span>'+
+    '<span>cache w</span><span>what it asked for</span></div>'+
     body+'</div>';
  }
  function drawTurns(){
@@ -1430,6 +1439,8 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   var w=dlg.querySelector('.tp-wrap');
   var y=tdrawn===null?0:(w?w.scrollTop:0);   // a fresh panel opens at the top
   dlg.innerHTML=html; tdrawn=html;
+  var x=dlg.querySelector('.tp-x'); if(x)x.onclick=function(ev){ ev.preventDefault();
+   ev.stopPropagation(); closeTurns(); };
   w=dlg.querySelector('.tp-wrap'); if(w)w.scrollTop=y;
  }
  function openTurns(k){
@@ -1460,8 +1471,9 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   // #turns carries no padding and no border, so a click on the dialog element itself
   // is a backdrop click. It must have started there too: a drag from a cost cell that
   // releases outside is a user selecting a figure to copy, not asking to close.
-  if(e.target===dlg&&tdown)closeTurns();
+  if(e.target===dlg)closeTurns();
  });
+ dlg.addEventListener('keydown',function(e){ if(e.key==='Escape')closeTurns(); });
  // ---- breakdown: where the money (or the tokens, or the time) actually went ----
  // main is counted as one more row. It is not a subagent, but it burns real
  // tokens — a quarter of the bill in a typical session — so leaving it out
