@@ -69,6 +69,22 @@ Planned (design notes, not yet implemented):
   its headless CLI reports no cost (open feature request). Cursor-launched
   work has no local trace at all today.
 
+**Transcript detection needs no cooperation from whoever launched the agent**,
+which is why it is the only mechanism here: when a Bash
+`tool_use` whose command mentions `codex` returns a `tool_result` carrying
+codex's own `session id: <uuid>` line, agent-atlas emits one `CLI:codex` leaf
+per distinct uuid per tree, under the agent whose transcript it was read from.
+It is a stub — `cost` is always `0` / `n/a`, since no Codex price table
+exists — and the banner fields it carries (`tokensUsed`, `sandbox`,
+`workdir`, `approval`, `codexVersion`, under `reported`) are harvested
+only from a complete printed banner; a grep or log re-read yields the session id
+and nothing else. **Those `reported.*` key names are provisional**, and may be
+replaced if a real `codex` provider module ever reads Codex's own store. Two
+known false negatives: a launch whose output the harness spilled to
+`<session-dir>/tool-results/<name>.txt` (that sibling file is never opened),
+and a launch run as a background shell and read back via `BashOutput` (that
+tool call carries no command to anchor on). Neither leaves a trace in the tree.
+
 ## Pricing
 
 `src/prices.mjs`. Anthropic list prices with cache multipliers (0.1× read,
