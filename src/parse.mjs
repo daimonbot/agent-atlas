@@ -39,6 +39,7 @@ export class SessionFileParser {
     this.userMsgs = 0;
     this.humanTurns = new Set();       // promptIds credited to a human (see #line)
     this.asked = new Map();            // AskUserQuestion tool_use id -> {ts, questions, done}
+    this.gateTurn = new Map();         // gate id -> promptId of the turn that answered it
     this.interactions = [];            // answered gates, question/answer pairs
     this.toolUseIds = new Set();       // tool_use ids seen (spawn attachment)
     this.firstPrompt = null;           // first real user prompt (session description)
@@ -62,7 +63,7 @@ export class SessionFileParser {
       this.models.clear(); this.efforts.clear();
       this.first = this.last = null; this.userMsgs = 0;
       this.toolUseIds.clear(); this.humanTurns.clear(); this.identity = {};
-      this.asked.clear(); this.interactions = [];
+      this.asked.clear(); this.interactions = []; this.gateTurn.clear();
       this.firstPrompt = null; this.summary = null;
       this.skills = []; this.branches = new Set();
       this.cwd = null; this.version = null; this.repo = null;
@@ -162,7 +163,10 @@ export class SessionFileParser {
     if (o.type === "user" && Array.isArray(c))
       for (const b of c) if (b.type === "tool_result" && this.asked.has(b.tool_use_id)) {
         this.#answer(b, o.timestamp);
-        if (typeof o.promptId === "string" && o.promptId) this.humanTurns.add(o.promptId);
+        if (typeof o.promptId === "string" && o.promptId) {
+          this.humanTurns.add(o.promptId);
+          this.gateTurn.set(b.tool_use_id, o.promptId);
+        }
       }
     if (Array.isArray(c))
       for (const b of c) if (b.type === "tool_use") {
@@ -320,6 +324,8 @@ export class SessionFileParser {
         tokens: g.t,
         costParts: g.cp,
         skills: g.skills,
+        human: this.humanTurns.has(g.pid),
+        decisions: this.interactions.filter(x => this.gateTurn.get(x.id) === g.pid).length,
         subagents: [],            // filled by the provider: only it can see child nodes
         tools: Object.fromEntries(g.tools),
       };

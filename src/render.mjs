@@ -513,6 +513,24 @@ table.tp td{vertical-align:top}
 table.tp td:first-child{color:var(--dim);font-weight:650}
 table.tp .fw-line{margin-left:0;gap:.6em}
 table.tp .tp-w{color:var(--dim);margin-left:.45em}
+.tp-card{border:1px solid var(--line);border-radius:9px;padding:.55em .7em;margin:.5em .7em}
+.tp-card + .tp-card{margin-top:0}
+.tp-c1{display:flex;align-items:baseline;gap:.55em;flex-wrap:wrap}
+.tp-n{background:#eceef1;color:var(--mut);border-radius:5px;padding:0 .45em;font-size:11px;font-weight:700}
+.tp-when{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--dim)}
+.tp-w{color:var(--mut);font-size:11px}
+.tp-cost{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums}
+.tp-b{border-radius:20px;padding:0 .5em;font-size:10px;font-weight:700}
+.tp-b.human{background:var(--accbg);color:var(--acc)}
+.tp-b.gate{background:#fdeded;color:var(--red)}
+.tp-c2{display:flex;align-items:baseline;gap:.7em;margin-top:.3em}
+.tp-calls{color:var(--dim);font-size:10.5px;margin-left:auto}
+.tp-acts{display:flex;flex-wrap:wrap;gap:.3em;margin-top:.5em;padding-top:.5em;
+ border-top:1px solid var(--line2)}
+.tp-t,.tp-s,.tp-k{font-size:11px;border-radius:5px;padding:.05em .45em}
+.tp-t{background:#f2f4f7;color:var(--mut)} .tp-t b{margin-left:.3em;color:var(--tx)}
+.tp-s{background:var(--accbg);color:var(--acc);font-weight:600}
+.tp-k{background:#fffbeb;color:var(--amber);font-weight:600}
 .tp-note{flex:0 0 auto;padding:.55em .9em .65em;background:#f7f7f5;
  border-top:1px solid var(--line2);color:var(--mut);font-size:10.5px}
 /* the feature's only entry point, in a row of quiet static spans: same UA reset
@@ -950,6 +968,10 @@ export function treeHTML(tree, opts = {}) {
     if (!bare(tl)) row.push(sk, sb, tl);
     else if (!bare(sb)) row.push(sk, sb);
     else if (!bare(sk)) row.push(sk);
+    if (t.human || t.decisions) {
+      while (row.length < 10) row.push(row.length === 7 ? sk : row.length === 8 ? sb : tl);
+      row.push((t.human ? 1 : 0) + (t.decisions ? 2 : 0), t.decisions || 0);
+    }
     return row;
   });
 
@@ -1339,18 +1361,24 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   var tn=n.tn||[], calls=0, inf=false;
   var body=tn.map(function(t){
    calls+=t[3];
-   var sk=(t[7]||[]).map(function(s){return esc(s);}).join(' ');
-   var sb=(t[8]||[]).map(function(p){
+   var sk=(t[7]||[]), sb=(t[8]||[]), tl=t[9]||{}, fl=t[10]||0;
+   var tools=Object.keys(tl).sort(function(a,b){return tl[b]-tl[a];})
+    .map(function(x){ return '<span class=tp-t>'+esc(x)+'<b>'+tl[x]+'</b></span>'; }).join('');
+   var subs=sb.map(function(p){
     if(!p[1])inf=true;                          // matched by start time, not by a tool call
-    return esc(BYK[p[0]]?BYK[p[0]].a:p[0])+(p[1]?'':'~');
-   }).join(' ');
-   var tl=t[9]||{};
-   var tc=Object.keys(tl).map(function(x){ return esc(x)+'×'+tl[x]; }).join(' ');
-   return '<tr><td>'+t[0]+'</td>'+
-    '<td>'+when(t[1],t[2])+'<span class=tp-w>'+dur(t[2]-t[1])+'</span></td>'+
-    '<td class=r>'+t[3]+'</td><td class="r money">'+usd(t[4])+'</td>'+
-    '<td>'+inline(t[5],t[6])+'</td>'+
-    '<td>'+sk+'</td><td>'+sb+'</td><td>'+tc+'</td></tr>';
+    return '<span class=tp-s>'+esc(BYK[p[0]]?BYK[p[0]].a:p[0])+(p[1]?'':'~')+'</span>';
+   }).join('');
+   var skills=sk.map(function(x){return '<span class=tp-k>⚙ '+esc(x)+'</span>';}).join('');
+   var tags=((fl&1)?'<span class="tp-b human">human</span>':'')+
+    ((fl&2)?'<span class="tp-b gate">'+t[11]+' decision'+(t[11]===1?'':'s')+'</span>':'');
+   return '<div class=tp-card><div class=tp-c1><span class=tp-n>'+t[0]+'</span>'+
+    '<span class=tp-when>'+when(t[1],t[2])+'</span><span class=tp-w>'+dur(t[2]-t[1])+'</span>'+
+    tags+'<span class=tp-cost>'+usd(t[4])+'</span></div>'+
+    '<div class=tp-c2>'+inline(t[5],t[6])+'<span class=tp-calls>'+t[3]+' calls</span></div>'+
+    (tools||subs||skills
+      ? '<div class=tp-acts>'+skills+tools+subs+'</div>'
+      : '<div class=tp-acts><span class=dim>no tool use recorded</span></div>')+
+    '</div>';
   }).join('');
   // turns and calls are summed over the rows below, never read off n.n, so the
   // summary cannot silently disagree with the table it heads. At one turn the
@@ -1360,9 +1388,7 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
   return '<div class=tp-head><b id=tp-name>'+esc(n.a)+'</b>'+
     '<span class=tp-sum>'+sum+'</span>'+
     '<button type=button class="tp-x" aria-label="Close">×</button></div>'+
-   '<div class=tp-wrap><table class=tp><thead><tr><th>#</th><th>window</th>'+
-    '<th class=r>calls</th><th class=r>cost</th><th>tokens</th><th>skills</th>'+
-    '<th>subagents</th><th>tools</th></tr></thead><tbody>'+body+'</tbody></table></div>'+
+   '<div class=tp-wrap>'+body+'</div>'+
    // sibling of the scroller, not inside it: a legend for a ~ seen at row 3 must not
    // sit below row 60
    (inf?'<div class=tp-note>~ matched to this turn by start time, not by the tool '+
