@@ -113,6 +113,15 @@ export function buildTree(sessionPath, cache = new Map()) {
     const childUsd = children.reduce((a, c) => a + c.cost.total, 0);
     const own = st ? st.costOwn : 0;
     const conf = st ? st.costConfidence : "n/a";
+    // Human effort belongs to the session a person typed into: a subagent's
+    // "user message" is its parent's errand, so only a root node keeps the
+    // parser's count. This is the single place root-ness is enforced, and the
+    // `via` conjunct is what does the work — graft()'s ledger-only leaf passes a
+    // truthy synthetic `st` that simply has no humanMsgs key.
+    const hm = via === "root" && st ? (st.humanMsgs || 0) : 0;
+    const calls = st ? st.apiCalls : 0;
+    // total is the rolled-up cost already shown everywhere; calls stay root-only.
+    const total = +(own + childUsd).toFixed(4);
     return {
       agent, description, agentId, provider: extra.provider || name, via,
       ...(st ? { model: st.model, effort: st.effort, start: st.start, end: st.end,
@@ -128,11 +137,14 @@ export function buildTree(sessionPath, cache = new Map()) {
                  costParts: ZERO_PARTS(),
                  identity: {}, unknownModels: [], skills: [], branch: null,
                  cwd: null, version: null, repo: null }),
+      humanMsgs: hm,
+      costPerHumanMsg: hm ? +(total / hm).toFixed(4) : null,
+      callsPerHumanMsg: hm ? +(calls / hm).toFixed(4) : null,
       ...("phase" in extra && extra.phase !== undefined ? { phase: extra.phase } : {}),
       ...("round" in extra && extra.round !== undefined ? { round: extra.round } : {}),
       ...(extra.reported ? { reported: extra.reported } : {}),
       cost: { own: +own.toFixed(4), children: +childUsd.toFixed(4),
-              total: +(own + childUsd).toFixed(4), confidence: conf },
+              total, confidence: conf },
       children,
     };
   }

@@ -29,7 +29,12 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
           desc: (t.firstPrompt || "").slice(0, 220),
           start: t.start, durationS: t.durationS,
           live: Date.now() - s.mtimeMs < LIVE_MS,
-          agents: countAgents(t), apiCalls: t.apiCalls, agentMs: agentMs(t),
+          agents: countAgents(t), apiCalls: t.apiCalls,
+          // copied straight from the node: the provider is the only place the
+          // three human-effort values are computed
+          humanMsgs: t.humanMsgs,
+          costPerHumanMsg: t.costPerHumanMsg, callsPerHumanMsg: t.callsPerHumanMsg,
+          agentMs: agentMs(t),
           byAgent: perAgent(t),
           model: t.model[0] || null,
           workspace: workspace(t), version: t.version,

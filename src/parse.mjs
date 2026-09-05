@@ -12,6 +12,12 @@ import { priceClaude, ZERO_PARTS } from "./prices.mjs";
 // price row, would downgrade the whole session's cost to "partial".
 const SYNTHETIC = "<synthetic>";
 
+// Text prefixes a human never typed: launcher-injected notes, the harness
+// echoing its own stdout back, and a bare interruption marker. A closed list,
+// deliberately not a generic "starts with <" test — a slash command reaches the
+// transcript as <command-message>…</command-message> and a human did type it.
+const NOT_HUMAN = ["<paseo-system", "<local-command-stdout", "[Request interrupted"];
+
 export class SessionFileParser {
   constructor(path) {
     this.path = path;
@@ -22,6 +28,7 @@ export class SessionFileParser {
     this.efforts = new Set();
     this.first = null; this.last = null;
     this.userMsgs = 0;
+    this.humanTurns = new Set();       // promptIds credited to a human (see #line)
     this.toolUseIds = new Set();       // tool_use ids seen (spawn attachment)
     this.firstPrompt = null;           // first real user prompt (session description)
     this.summary = null;               // harness-written summary record, if any
@@ -43,7 +50,7 @@ export class SessionFileParser {
       this.offset = 0; this.tail = ""; this.seen.clear();
       this.models.clear(); this.efforts.clear();
       this.first = this.last = null; this.userMsgs = 0;
-      this.toolUseIds.clear(); this.identity = {};
+      this.toolUseIds.clear(); this.humanTurns.clear(); this.identity = {};
       this.firstPrompt = null; this.summary = null;
       this.skills = []; this.branches = new Set();
       this.cwd = null; this.version = null; this.repo = null;
@@ -99,6 +106,14 @@ export class SessionFileParser {
       const t0 = (typeof c === "string" ? c : c.filter(b => b.type === "text").map(b => b.text).join(" ")).trim();
       if (t0.startsWith("Base directory for this skill: "))
         this.#skill(t0.split("\n")[0].split("/").pop());
+      // A turn is one distinct promptId, and it is human if ANY of its records
+      // looks typed by a person. Credit is only ever added, never retracted, so
+      // the count is monotone under append and idempotent under re-feed — which
+      // is what a byte-offset parser over a live, appending file requires.
+      if (typeof o.promptId === "string" && o.promptId && !o.isMeta
+          && o.origin?.kind !== "task-notification"
+          && !NOT_HUMAN.some(p => t0.startsWith(p)))
+        this.humanTurns.add(o.promptId);
     }
     if (Array.isArray(c))
       for (const b of c) if (b.type === "tool_use") {
@@ -140,6 +155,7 @@ export class SessionFileParser {
       start: this.first, end: this.last,
       durationS: this.first && this.last ? Math.round((new Date(this.last) - new Date(this.first)) / 1000) : null,
       apiCalls: this.seen.size, userMsgs: this.userMsgs,
+      humanMsgs: this.humanTurns.size,
       firstPrompt: this.firstPrompt, summary: this.summary,
       skills: [...this.skills], branch: [...this.branches][0] || null,
       cwd: this.cwd, version: this.version, repo: this.repo,
