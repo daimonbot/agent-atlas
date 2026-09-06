@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // agent-atlas CLI. Commands: list, tree, export, serve.
 import fs from "node:fs";
-import * as claude from "./providers/claude.mjs";
-import { describe } from "./providers/claude.mjs";
-import { treeHTML, treeTerminal, fmtDur } from "./render.mjs";
+import * as providers from "./providers/index.mjs";
+import { describe } from "./providers/index.mjs";
+import { treeHTML, treeTerminal, fmtDur, money } from "./render.mjs";
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -14,9 +14,14 @@ const opt = (name, dflt) => {
 const LIVE_MS = 120_000;
 
 function resolveSession(ref) {
-  if (fs.existsSync(ref)) return ref;
-  const hits = claude.discover().filter(s => s.id.startsWith(ref));
-  if (hits.length === 1) return hits[0].path;
+  // A path argument is now claimed by a provider that recognises it (today: an
+  // existing *.jsonl transcript) rather than by bare existence. Any other real
+  // path used to be handed straight to the Claude parser and built into a
+  // garbage tree; it is "no session matches" now. Documented in README.
+  const claimed = providers.refFromPath(ref);
+  if (claimed) return claimed;
+  const hits = providers.discover().filter(s => s.id.startsWith(ref));
+  if (hits.length === 1) return hits[0];
   if (hits.length === 0) die(`no session matches '${ref}'`);
   die(`ambiguous: ${hits.map(h => h.id.slice(0, 12)).join(", ")}`);
 }
@@ -29,32 +34,37 @@ if (cmd === "list") {
   const cache = new Map();
   const minCost = +opt("min-cost", 0);
   const sortK = String(opt("sort", "time"));
-  const rows = claude.discover()
+  const rows = providers.discover()
     .filter(s => all || s.mtimeMs >= cutoff)
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .map(s => {
-      const t = claude.buildTree(s.path, cache);
+      // Per-ref fault isolation: a session that cannot be built is dropped with
+      // one line naming it and every other session still lists. Until a second
+      // provider existed, one bad ref aborted the whole command.
+      let t;
+      try { t = providers.buildTree(s, cache); }
+      catch (e) { console.error("agent-atlas: skipped " + s.id + ": " + e.message); return null; }
       return { id: s.id, project: s.project.replace(/^-/, "").slice(0, 38),
         name: describe(t).title || t.identity?.agentName || "",
         desc: describe(t).subtitle.slice(0, 60),
         start: t.start, durationS: t.durationS, live: Date.now() - s.mtimeMs < LIVE_MS,
         agents: countAgents(t), cost: t.cost.total };
     })
-    .filter(r => r.cost >= minCost);
+    .filter(r => r && r.cost >= minCost);
   if (sortK === "cost") rows.sort((a, b) => b.cost - a.cost);
   if (args.includes("--json")) { console.log(JSON.stringify(rows, null, 1)); process.exit(0); }
   for (const r of rows)
     console.log([r.live ? "LIVE" : "    ", r.id.slice(0, 8),
       (r.start || "").slice(0, 16).replace("T", " "), fmtDur(r.durationS).padStart(6),
-      String(r.agents).padStart(3) + " ag", ("$" + r.cost.toFixed(2)).padStart(9),
+      String(r.agents).padStart(3) + " ag", money(r.cost).padStart(9),
       r.name || r.project, r.desc ? "· " + r.desc : ""].join("  "));
   const total = rows.reduce((a, r) => a + r.cost, 0);
   console.log(`\n${rows.length} sessions · total $${total.toFixed(2)} (last ${all ? "∞" : days + "d"})`);
 } else if (cmd === "tree" || cmd === "export") {
-  const p = resolveSession(args[1] || die("usage: agent-atlas tree <session-id|path>"));
-  const t = claude.buildTree(p);
+  const ref = resolveSession(args[1] || die("usage: agent-atlas tree <session-id|path>"));
+  const t = providers.buildTree(ref);
   if (cmd === "export" || args.includes("--html")) {
-    const html = treeHTML(t, { title: `${t.agent} · ${t.cost ? "$" + t.cost.total.toFixed(2) : ""}` });
+    const html = treeHTML(t, { title: `${t.agent} · ${money(t.cost.total)}` });
     const out = opt("out", null);
     if (out && out !== true) { fs.writeFileSync(out, html); console.error("wrote " + out); }
     else process.stdout.write(html);

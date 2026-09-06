@@ -4,9 +4,9 @@
 // growing; every page shows cost-so-far and auto-refreshes while live.
 import http from "node:http";
 import { URL } from "node:url";
-import * as claude from "./providers/claude.mjs";
-import { describe, workspace } from "./providers/claude.mjs";
-import { treeHTML, indexHTML, subtreeTotals, agentMs, perAgent } from "./render.mjs";
+import * as providers from "./providers/index.mjs";
+import { describe, workspace } from "./providers/index.mjs";
+import { treeHTML, indexHTML, subtreeTotals, agentMs, perAgent, money } from "./render.mjs";
 
 const LIVE_MS = 120_000;
 
@@ -18,9 +18,15 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
 
   function scan() {
     try {
-      sessions = claude.discover().sort((a, b) => b.mtimeMs - a.mtimeMs);
+      sessions = providers.discover().sort((a, b) => b.mtimeMs - a.mtimeMs);
       rows = sessions.map(s => {
-        const t = claude.buildTree(s.path, cache);   // incremental: only new bytes parsed
+        // Per-ref fault isolation: a session that cannot be built is dropped
+        // with one line naming it, and the index still rebuilds. The outer
+        // catch below only covers discover() now -- it used to freeze the whole
+        // index at its previous value ([] on the first scan) for one bad ref.
+        let t;
+        try { t = providers.buildTree(s, cache); }   // incremental: only new bytes parsed
+        catch (e) { console.error("[scan] " + s.id + ": " + e.message); return null; }
         const d = describe(t);
         const tot = subtreeTotals(t).get(t).tot;
         return { id: s.id, project: s.project.replace(/^-/, ""), path: s.path,
@@ -40,7 +46,7 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
           workspace: workspace(t), version: t.version,
           tokens: tot.t, tokenCost: tot.d,
           cost: t.cost.total };
-      });
+      }).filter(Boolean);
     } catch (e) { console.error("[scan]", e.message); }
   }
   scan();
@@ -60,13 +66,17 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
       if (u.pathname === "/api/sessions") return json(rows);
       let m = u.pathname.match(/^\/(api\/tree|session)\/([0-9a-f-]+)$/);
       if (m) {
-        const s = sessions.find(x => x.id === m[2] || x.id.startsWith(m[2]));
+        // An exact id wins over any prefix match on an earlier element: .find()
+        // with an either-or predicate returns whichever element matches first,
+        // and two providers sharing one id space makes that reachable (every
+        // Codex id here shares a 4-char prefix, several share 8).
+        const s = sessions.find(x => x.id === m[2]) || sessions.find(x => x.id.startsWith(m[2]));
         if (!s) return send(404, "text/plain", "unknown session");
-        const t = claude.buildTree(s.path, cache);
+        const t = providers.buildTree(s, cache);
         const live = Date.now() - s.mtimeMs < LIVE_MS;
         if (m[1] === "api/tree") return json(t);
         return send(200, "text/html", treeHTML(t, {
-          title: `${t.cost.total.toFixed(2)} · ${s.project.replace(/^-/, "")}`,
+          title: `${money(t.cost.total)} · ${s.project.replace(/^-/, "")}`,
           describe: describe(t), workspace: workspace(t),
           live, backHref: "/" + tokenQS, refresh: live ? 10 : 0 }));
       }

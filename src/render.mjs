@@ -2,6 +2,11 @@
 // HTML export, terminal tree. Zero dependencies; client JS is vanilla.
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const usd = n => n > 0 && n < 0.01 ? "$" + n.toFixed(4) : "$" + n.toFixed(2);
+// The one place that decides what a per-node / per-session dollar figure looks like.
+// Keyed on the VALUE, not on cost.confidence: a session can be honestly zero-cost with
+// confidence "verified", and `$0.00` would still be the wrong thing to print for it.
+// Sub-figures (per-token-class, $/msg, aggregates over many sessions) keep calling usd().
+export const money = v => (v ? usd(v) : "·");
 const num = n => (n ?? 0).toLocaleString("en");
 export const fmtDur = s => s == null ? "" :
   s >= 3600 ? (s / 3600).toFixed(1) + "h" : s >= 60 ? Math.round(s / 60) + "m" : s + "s";
@@ -13,6 +18,11 @@ const shortModel = ms => ms.map(m => m.replace("claude-", "").replace("-20251001
 // no character esc() rewrites and no backslash, so the same bytes are safe in a
 // title attribute, in this file's template literals and inside an inline script.
 const HM_TIP = "human messages: turns in the root transcript of this session that look human-typed. Not counted: task-notification wake-ups, harness and meta records, launcher-injected paseo-system notes, and standalone interruptions — stopping a run does not itself count, though a turn you typed and then interrupted counts once. Subagents never contribute. Heuristic, not fact: nothing else on disk separates a scheduler-fired or agent-fired prompt from one you typed, so those count too.";
+
+// The reported-tokens disclosure, shown on any node carrying reported.tokensUsed.
+// Same discipline as HM_TIP: no character esc() rewrites, no backslash, and no angle
+// bracket — the chip is greppable as `chip[^>]*>rep`, and an attribute is inside that span.
+const REP_TIP = "reported by the provider itself rather than measured from its own per-call records. It is that session's last response total_tokens — how full the context window was at the end, reset by compaction — not a cumulative session total, and never an input to any cost figure. Shown only when the real per-call breakdown could not be read.";
 
 /** A filterable picker. The real value lives in a hidden input keyed by `id`,
  *  so callers listen for change on `id` exactly as they did with a <select>. */
@@ -651,7 +661,7 @@ export function indexHTML(rows, { tokenQS = "" } = {}) {
         r.costPerHumanMsg !== null ? `<span class=usd>${usd(r.costPerHumanMsg)}/msg</span>` : ""}</td>` +
       METRICS.map(([m]) => `<td class="r${tk[m] ? "" : " zero"}" data-v="${tk[m]}">` +
         `${tk[m] ? `${kTok(tk[m])}<span class=usd>${usd(tc[m])}</span>` : "·"}</td>`).join("") +
-      `<td class="r money" data-v="${r.cost}">${usd(r.cost)}</td></tr>`;
+      `<td class="r money${r.cost ? "" : " zero"}" data-v="${r.cost}">${money(r.cost)}</td></tr>`;
   }).join("\n");
 
   return `<!doctype html><meta charset=utf-8><title>agent-atlas</title>
@@ -933,7 +943,11 @@ export function treeHTML(tree, opts = {}) {
     const conf = n.cost.confidence === "computed" ? `<span class=conf-computed>± </span>` :
                  n.cost.confidence === "reported" ? `<span class=conf-reported>rep </span>` : "";
     const chips = (n.phase != null ? `<span class=chip>${esc(n.phase)}${n.round != null ? " r" + esc(n.round) : ""}</span>` : "")
-      + ((n.skills && n.skills.length) ? `<span class=chip>⚙ ${esc(n.skills.slice(0, 3).join(" → "))}${n.skills.length > 3 ? " …" : ""}</span>` : "");
+      + ((n.skills && n.skills.length) ? `<span class=chip>⚙ ${esc(n.skills.slice(0, 3).join(" → "))}${n.skills.length > 3 ? " …" : ""}</span>` : "")
+      // The provider's own reported token figure — the only number known about a node whose
+      // real breakdown we could not read. Full digits via num(), never kTok(): it is an exact
+      // aggregate somebody else measured, and rounding it away is the one thing it cannot afford.
+      + (n.reported?.tokensUsed != null ? `<span class=chip title="${esc(REP_TIP)}">rep ${num(n.reported.tokensUsed)} tok</span>` : "");
     const shown = open && !leaf;          // open rows drop to their own share
     const cells = METRICS.map(([m]) => {
       const v = shown ? a.own.t[m] : a.tot.t[m], c = shown ? a.own.d[m] : a.tot.d[m];
@@ -1073,10 +1087,10 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
    : `<div class=prompt>${esc(t.firstPrompt)}</div>`) : ""}
 </div>
 <div class=dash>
- <div class="tile lead"><span class=lbl>Total cost</span><b>${usd(t.cost.total)}</b>
-  <span class=sub>main ${usd(t.cost.own)} · agents ${usd(t.cost.children)}</span></div>
+ <div class="tile lead"><span class=lbl>Total cost</span><b>${money(t.cost.total)}</b>
+  <span class=sub>main ${money(t.cost.own)} · agents ${money(t.cost.children)}</span></div>
  <div class=tile><span class=lbl>Agents</span><b>${nAgents}</b>
-  <span class=sub>${usd(t.cost.children)}</span></div>
+  <span class=sub>${money(t.cost.children)}</span></div>
  ${METRICS.map(([m, label]) => `<div class=tile><span class=lbl>${label}</span>
   <b>${kTok(R.tot.t[m])}</b><span class=sub>${usd(R.tot.d[m])}</span></div>`).join("")}
  <div class=tile><span class=lbl>Duration</span><b>${fmtDur(t.durationS)}</b>
@@ -1649,10 +1663,11 @@ export function treeTerminal(tree, width = process.stdout.columns || 120) {
   const out = [];
   function line(n, prefix, childPrefix) {
     const badge = n.via === "cli" ? `[CLI${n.provider !== "claude" ? ":" + n.provider : ""}] ` : "";
-    const cost = usd(n.cost.total) +
-      (n.children.length ? ` (own ${usd(n.cost.own)} + sub ${usd(n.cost.children)})` : "") +
+    const cost = money(n.cost.total) +
+      (n.children.length ? ` (own ${money(n.cost.own)} + sub ${money(n.cost.children)})` : "") +
       (n.cost.confidence === "computed" ? " ±" : n.cost.confidence === "reported" ? " (reported)" : "");
-    const meta = `${shortModel(n.model)} ${n.effort.join(",")} ${fmtDur(n.durationS)} ${n.apiCalls}c out ${kTok(n.tokens.output)} cR ${kTok(n.tokens.cacheRead)} cW ${kTok(n.tokens.cacheWrite5m + n.tokens.cacheWrite1h)}`;
+    const meta = `${shortModel(n.model)} ${n.effort.join(",")} ${fmtDur(n.durationS)} ${n.apiCalls}c out ${kTok(n.tokens.output)} cR ${kTok(n.tokens.cacheRead)} cW ${kTok(n.tokens.cacheWrite5m + n.tokens.cacheWrite1h)}` +
+      (n.reported?.tokensUsed != null ? ` rep ${num(n.reported.tokensUsed)} tok` : "");
     let head = `${prefix}${badge}${n.agent} — ${n.description ?? ""}`;
     const tail = `  ${meta}  ${cost}`;
     const room = width - tail.length - 1;
