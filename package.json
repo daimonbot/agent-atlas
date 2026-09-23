@@ -1,9 +1,36 @@
 {
   "name": "agent-atlas",
   "version": "0.7.0",
-  "description": "Provider-agnostic cost & agent-tree explorer for AI coding sessions. Zero dependencies.",
+  "description": "Provider-agnostic cost & agent-tree explorer for AI coding sessions.",
   "type": "module",
-  "bin": { "agent-atlas": "./src/cli.mjs" },
-  "engines": { "node": ">=22" },
-  "private": true
+  "bin": {
+    "agent-atlas": "./src/cli.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "private": true,
+  "scripts": {
+    "build": "vite build && vite build --config vite.export.config.js",
+    "dev": "vite",
+    "test": "node --test",
+    "typecheck": "tsc --noEmit",
+    "bench": "node bench/sessions.mjs",
+    "test:browser": "node --test test/browser.test.mjs",
+    "pretest:browser": "npm run build"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.103.2",
+    "@tanstack/react-virtual": "^3.14.13",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  }
 }
