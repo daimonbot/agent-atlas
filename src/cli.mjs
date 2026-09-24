@@ -2,8 +2,19 @@
 // agent-atlas CLI. Commands: list, tree, export, serve.
 import fs from "node:fs";
 import * as claude from "./providers/claude.mjs";
-import { describe } from "./providers/claude.mjs";
-import { treeHTML, treeTerminal, fmtDur } from "./render.mjs";
+import { describe, workspace } from "./providers/claude.mjs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { treeTerminal, fmtDur } from "./render.mjs";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const exportHTML = tree => {
+  const dir = path.join(HERE, "..", "dist", "export");
+  const js = fs.readFileSync(path.join(dir, "agent-atlas-export.iife.js"), "utf8");
+  const css = fs.readFileSync(path.join(dir, "agent-atlas-export.css"), "utf8");
+  const data = JSON.stringify({ tree, info: describe(tree), workspace: workspace(tree) }).replace(/</g, "\\u003c");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>agent-atlas export</title><style>${css}</style></head><body><div id="root"></div><script>window.__AGENT_ATLAS_EXPORT__=${data}</script><script>${js}</script></body></html>`;
+};
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -54,7 +65,7 @@ if (cmd === "list") {
   const p = resolveSession(args[1] || die("usage: agent-atlas tree <session-id|path>"));
   const t = claude.buildTree(p);
   if (cmd === "export" || args.includes("--html")) {
-    const html = treeHTML(t, { title: `${t.agent} · ${t.cost ? "$" + t.cost.total.toFixed(2) : ""}` });
+    const html = exportHTML(t);
     const out = opt("out", null);
     if (out && out !== true) { fs.writeFileSync(out, html); console.error("wrote " + out); }
     else process.stdout.write(html);

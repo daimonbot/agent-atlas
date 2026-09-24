@@ -1,8 +1,8 @@
 # agent-atlas
 
 Provider-agnostic cost & agent-tree explorer for AI coding sessions.
-**Zero dependencies** — Node 22 stdlib only. No outbound network, no telemetry,
-binds `127.0.0.1` by default.
+**React 19 + Vite UI**, backed by a Node 22+ server. No runtime outbound network, no telemetry,
+and binds `127.0.0.1` by default.
 
 Reads the transcripts your agent harness already writes, builds a nested tree of
 every agent that ran (main → subagents → their subagents, any depth),
@@ -18,6 +18,15 @@ main — (session)                              opus-5 high 19.4h 251c  $323.17 
 
 ## Usage
 
+Install and build the browser client once:
+
+```bash
+npm install
+npm run build
+```
+
+Then use the CLI:
+
 ```bash
 node src/cli.mjs list [--days 7 | --all] [--json]      # sessions, cost-so-far, LIVE badge
 node src/cli.mjs tree <session-id|path> [--json|--html] # expandable tree (terminal/JSON/HTML)
@@ -25,11 +34,9 @@ node src/cli.mjs export <id> --out tree.html            # standalone HTML, no se
 node src/cli.mjs serve [--host 127.0.0.1] [--port 4747] [--interval 10] [--token X]
 ```
 
-Web view: `/` session list · `/session/<id>` agent table — both with stat
-tiles, sortable columns, searchable filters, and cost split per token class ·
-`/api/sessions`, `/api/tree/<id>` JSON. With `--token X` every request must
-carry `?t=X` (use it if you bind beyond localhost).
-Flow cards open a per-turn detail panel · every `/api/tree/<id>` node carries `turns`.
+Web view: `/` is a Vite-built React application and `/session/<id>` is its React detail route. The list uses a worker-backed session index, server-side filtering/sorting/aggregates, paged JSON and bounded virtual rows, so the initial UI payload and mounted DOM do not grow with the complete history. Detail data is fetched only after navigating to a session.
+
+Compatibility endpoints remain available: `/api/sessions` and `/api/tree/<id>`. The React UI uses additive `/api/ui/sessions` and `/api/ui/session/<id>` endpoints. With `--token X`, HTML and API requests require `?t=X`; fingerprinted static browser assets are intentionally public and contain no transcript data.
 
 ## Live sessions
 
@@ -45,8 +52,7 @@ Transcripts are append-only JSONL, so ingestion is incremental and idempotent:
    is **LIVE** if its file changed in the last 2 minutes; its tree is simply
    the tree so far, and live pages auto-refresh.
 
-Change detection is a stat scan every `--interval` seconds (no inotify: with
-~1k sessions a scan costs milliseconds and avoids watcher edge cases).
+Change detection is a stat scan every `--interval` seconds. Parsing/indexing runs in a worker thread, so the HTTP listener and health endpoint become available before the initial corpus index completes. The UI reports this transient indexing state rather than presenting partial totals as final.
 
 ## Providers
 
@@ -97,8 +103,7 @@ multipliers and are flagged `computed`. Sonnet 5's introductory window
 
 - The harness sweeps transcripts after `cleanupPeriodDays` (default 30). v1 is
   in-memory over what's on disk; durable retention would add a store later.
-- `list`/startup parse everything discovered once (~seconds); after that,
-  incremental.
+- The initial worker index remains corpus-sized; it is deliberately asynchronous so it does not delay the HTTP server.
 
 ## Docker
 
