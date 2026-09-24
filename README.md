@@ -56,21 +56,53 @@ Change detection is a stat scan every `--interval` seconds. Parsing/indexing run
 
 ## Providers
 
-`src/providers/<name>.mjs` implements: `discover()` → session refs, and
-`buildTree(sessionPath, cache)` → tree. Implemented:
+`src/providers/<name>.mjs` implements: `discover()` → session refs,
+`buildTree(ref, cache)` → tree, and `refFromPath(absPath)` → a ref or `null`
+("not mine"). `src/providers/index.mjs` is the registry: it concatenates
+`discover()` over the providers and dispatches `buildTree` on `ref.provider`.
+A ref is `{provider, id, project, path, mtimeMs, size}`.
+
+`tree <path>` / `export <path>` now only accept a path a provider recognises
+(today: an existing `*.jsonl` transcript). Any other real path used to be parsed
+as a transcript and rendered as a garbage tree; it is `no session matches` now.
+Session ids are unchanged.
+
+Implemented:
 
 - **claude** (Claude Code): sessions in `~/.claude/projects/<proj>/<uuid>.jsonl`
   (override root with `AGENT_ATLAS_CLAUDE_ROOT`); harness subagents from
   `<uuid>/subagents/agent-*.jsonl` + `.meta.json` sidecars (`agentType`,
   `description`, `parentAgentId`, `spawnDepth`); cost per node computed from
   per-message usage with the 5m/1h cache-tier split.
+- **codex** (Codex CLI): Codex's own stores under `~/.codex` (override the root
+  with `AGENT_ATLAS_CODEX_ROOT` — note it names the *home*, not a sessions
+  directory, because the three inputs are siblings): `state_5.sqlite`
+  (`threads`, `thread_spawn_edges`), `thread_history_1.sqlite` (`thread_turns`,
+  `thread_items`) and the rollout JSONL under `sessions/`, which is the only
+  place a per-response token breakdown exists. Read-only, via `node:sqlite`.
+  Cost is per API call, priced with that call's *own* turn model — a thread that
+  switched models mid-session is not priced at one of them. No dollar figure
+  exists anywhere in Codex's store, so every row is list-price × tokens flagged
+  `computed`, never `verified`.
+  A thread that is the child of a `thread_spawn_edges` row nests inside its
+  parent's tree with `via: "spawn"` (not `"cli"`, which means "spotted in a
+  Claude transcript", and not `"harness"`). **A nested spawn child is not
+  addressable on its own** — `tree <child-id>` and `GET /session/<child-id>` do
+  not resolve it, the same way a Claude harness subagent's own file is not a
+  top-level session. Archived threads are still listed: atlas audits what is on
+  disk.
+  On a host that has Codex data, Node prints one
+  `ExperimentalWarning: SQLite is an experimental feature…` line to stderr per
+  process, the first time the store is opened. `NODE_NO_WARNINGS=1` silences it
+  for `--json` pipelines. On a host that never ran Codex, nothing is read, no
+  warning is printed, and nothing about Claude sessions changes.
+  Note the index's default filters hide cheap sessions — `min $` ships ticked at
+  `0.5` over a 30-day window — so a Codex session on a model with no price row
+  (cost `0`, `n/a`) does not appear on `/` until you untick it. Pre-existing and
+  provider-neutral, but worth knowing before concluding a session is missing.
 
 Planned (design notes, not yet implemented):
 
-- **codex**: `~/.codex/state_5.sqlite` (`threads` incl. free-text `source`,
-  `thread_spawn_edges` for native parent/child) + `thread_turns` timings +
-  rollout JSONL for tokens, via `node:sqlite`. No dollar figure exists anywhere
-  in Codex's store — costs would be list-price × tokens, flagged `computed`.
 - **cursor**: nothing to read — Cursor persists no billable usage locally and
   its headless CLI reports no cost (open feature request). Cursor-launched
   work has no local trace at all today.
@@ -99,6 +131,13 @@ own `total_cost_usd`** for `haiku-4-5` and `opus-5`; other models use the same
 multipliers and are flagged `computed`. Sonnet 5's introductory window
 (≤ 2026-08-31) is handled.
 
+The same file carries a `CODEX` table of OpenAI list prices for the Codex
+provider, sourced and dated in its own header comment. All three rows are
+`computed` — Codex exposes no `total_cost_usd` to validate against. `gpt-5.6-sol`'s
+rate is **promotional through ~2026-11-21** and no post-window rate is published,
+so no time-window branch is built for it: the far side would be a guess. A Codex
+model with no row prices `n/a`, never `$0.00`.
+
 ## Caveats
 
 - The harness sweeps transcripts after `cleanupPeriodDays` (default 30). v1 is
@@ -111,9 +150,17 @@ Published to GHCR by CI on every push to `main` (and semver tags):
 
 ```bash
 docker run --rm -p 4747:4747 \
-  -v "$HOME:/data/home:ro" -e AGENT_ATLAS_CLAUDE_ROOT=/data/home/.claude/projects \
+  -v "$HOME:/data/home" -e AGENT_ATLAS_CLAUDE_ROOT=/data/home/.claude/projects \
+  -e AGENT_ATLAS_CODEX_ROOT=/data/home/.codex \
   ghcr.io/daimonbot/agent-atlas:latest
 ```
 
-The image runs as user `node` (uid 1000), needs only a read-only mount of the
-home that contains the transcripts, and writes nothing.
+The image runs as user `node` (uid 1000), reads the home that contains the
+sessions, and writes nothing of its own.
+
+**The mount is deliberately not `:ro`.** Codex's stores are WAL-mode SQLite, and
+a WAL database in a non-writable directory cannot be opened *even read-only* —
+SQLite needs to create the `-shm` sidecar. Every open agent-atlas makes is
+`readOnly: true`, so the databases themselves are never written; what the mount
+has to allow is SQLite's own sidecar. Drop `AGENT_ATLAS_CODEX_ROOT` and put
+`:ro` back if you only ever read Claude transcripts.
