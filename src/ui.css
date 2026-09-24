@@ -423,3 +423,5 @@ body:has(.sessions-page){max-width:none}
 @media(max-width:1599px){.sessions-table .col-humanMsgs,.sessions-table .col-cw{display:none}}
 @media(max-width:1199px){.sessions-table .col-agentMs,.sessions-table .col-calls{display:none}.sessions-table .tt .col-title{min-width:20ch}.sessions-table .tt .col-project{min-width:12ch}}
 @media(max-width:899px){.sessions-table .col-live,.sessions-table .col-start,.sessions-table .col-duration,.sessions-table .col-agents{display:none}.table-meta{flex-wrap:wrap}.table-meta nav{margin-left:0}.table-meta-note{width:100%;order:3}.sessions-table-region{overflow-x:auto}.sessions-table .tt{min-width:700px}}
+
+.sessions-table .model-label{display:inline-block;margin-right:.45em;color:var(--acc);font-size:10.5px;font-weight:650;letter-spacing:.01em}
