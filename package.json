@@ -1,6 +1,6 @@
 {
   "name": "agent-atlas",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Provider-agnostic cost & agent-tree explorer for AI coding sessions.",
   "type": "module",
   "bin": {
