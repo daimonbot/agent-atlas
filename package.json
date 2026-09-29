@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit",
     "bench": "node bench/sessions.mjs",
     "test:browser": "node --test test/browser.test.mjs",
-    "pretest:browser": "npm run build"
+    "pretest:browser": "npm run build",
+    "prices:snapshot": "node scripts/prices-snapshot.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.103.2",

@@ -5,7 +5,8 @@ import * as claude from "./providers/claude.mjs";
 import { describe, workspace } from "./providers/claude.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { treeTerminal, fmtDur } from "./render.mjs";
+import { treeTerminal, fmtDur, costLabel } from "./render.mjs";
+import { refreshPrices } from "./pricing/index.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const exportHTML = tree => {
@@ -23,6 +24,11 @@ const opt = (name, dflt) => {
   return i >= 0 ? (args[i + 1] && !args[i + 1].startsWith("--") ? args[i + 1] : true) : dflt;
 };
 const LIVE_MS = 120_000;
+
+// A one-shot command gives a due price refresh a short, bounded chance before it
+// prices anything; a slow or failed source just leaves the bundled/cached prices.
+// Nothing is fetched while the local cache is fresh (see pricing/index.mjs).
+if (["list", "tree", "export"].includes(cmd)) await refreshPrices({ timeoutMs: 2000 }).catch(() => {});
 
 function resolveSession(ref) {
   if (fs.existsSync(ref)) return ref;
@@ -49,7 +55,7 @@ if (cmd === "list") {
         name: describe(t).title || t.identity?.agentName || "",
         desc: describe(t).subtitle.slice(0, 60),
         start: t.start, durationS: t.durationS, live: Date.now() - s.mtimeMs < LIVE_MS,
-        agents: countAgents(t), cost: t.cost.total };
+        agents: countAgents(t), cost: t.cost.total, costConfidence: t.cost.confidence };
     })
     .filter(r => r.cost >= minCost);
   if (sortK === "cost") rows.sort((a, b) => b.cost - a.cost);
@@ -57,7 +63,7 @@ if (cmd === "list") {
   for (const r of rows)
     console.log([r.live ? "LIVE" : "    ", r.id.slice(0, 8),
       (r.start || "").slice(0, 16).replace("T", " "), fmtDur(r.durationS).padStart(6),
-      String(r.agents).padStart(3) + " ag", ("$" + r.cost.toFixed(2)).padStart(9),
+      String(r.agents).padStart(3) + " ag", costLabel(r.cost, r.costConfidence).padStart(9),
       r.name || r.project, r.desc ? "· " + r.desc : ""].join("  "));
   const total = rows.reduce((a, r) => a + r.cost, 0);
   console.log(`\n${rows.length} sessions · total $${total.toFixed(2)} (last ${all ? "∞" : days + "d"})`);

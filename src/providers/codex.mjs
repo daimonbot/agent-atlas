@@ -21,7 +21,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { ZERO_PARTS, priceCodex } from "../prices.mjs";
+import { ZERO_PARTS, priceUsage, provenance, pricingRevision } from "../pricing/index.mjs";
+
+// Codex is billed at OpenAI's list prices.
+const priceCodex = (model, ts, u) => priceUsage("openai", model, ts, u);
 import { finish } from "./node.mjs";
 
 export const name = "codex";
@@ -212,7 +215,7 @@ function readRollout(file) {
   // Pass 2: price every record with its own turn's model.
   const tokens = ZERO_TOKENS();
   const raw = { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0 };
-  const ids = new Set(), unknown = new Set(), byModel = new Map();
+  const ids = new Set(), unknown = new Set(), byModel = new Map(), prices = new Set();
   const costParts = ZERO_PARTS();
   const turns = new Map();                     // turn_id -> {usd(raw), apiCalls, tokens, costParts}
   const calls = [];
@@ -249,6 +252,7 @@ function readRollout(file) {
     } else {
       pr = priceCodex(model, r.ts, uu);
       if (pr.unknownModel != null) unknown.add(pr.unknownModel);
+      if (pr.price) prices.add(pr.price);
       byModel.set(model, (byModel.get(model) || 0) + (u.total_tokens || 0));
     }
     if (pr.confidence === "n/a") unpriced++; else priced++;
@@ -262,7 +266,8 @@ function readRollout(file) {
     g.tokens.output += uu.out; g.tokens.cacheWrite5m += uu.c5;
     for (const k in g.costParts) g.costParts[k] += pr.parts[k];
 
-    calls.push({ id: r.id ?? null, ts: r.ts ?? null, cost: pr.usd, model,
+    calls.push({ id: r.id ?? null, ts: r.ts ?? null, cost: pr.confidence === "n/a" ? null : pr.usd,
+                 price: pr.price ?? null, model,
                  tokens: { in: uu.in, out: uu.out, cr: uu.cr, cw: uu.c5 },
                  costParts: pr.parts, turnId: r.turnId ?? null });
   }
@@ -298,8 +303,8 @@ function readRollout(file) {
     tokens, apiCalls: ids.size,
     models: models.sort((a, b) => (byModel.get(b) || 0) - (byModel.get(a) || 0)),
     efforts, costOwn, costParts, unknownModels: [...unknown],
-    costConfidence: priced === 0 ? "n/a" : unpriced ? "partial" : "computed",
-    turnCost, calls,
+    costConfidence: priced === 0 ? "n/a" : unpriced || unknown.size ? "partial" : "computed",
+    pricing: [...prices].map(provenance), turnCost, calls,
   };
 }
 
@@ -315,10 +320,11 @@ const cacheKey = id => `codex:st:${id}`;
 function rollFor(cache, id, updatedMs, storedPath) {
   const key = cacheKey(id);
   const hit = cache && cache.get(key);
-  if (hit && hit.updatedMs === updatedMs) return hit.roll;
+  const rev = pricingRevision();
+  if (hit && hit.updatedMs === updatedMs && hit.rev === rev) return hit.roll;
   const file = resolveRollout(storedPath);
   const roll = file ? readRollout(file) : null;
-  if (cache) cache.set(key, { updatedMs, roll });
+  if (cache) cache.set(key, { updatedMs, rev, roll });
   return roll;
 }
 
@@ -490,7 +496,7 @@ function synth(t, roll, createdMs, updatedMs, hist) {
   const calls = (roll ? roll.calls : []).map(k => {
     const opens = k.turnId != null && hasUser && humanTurns.has(k.turnId) && !openers.has(k.turnId);
     if (opens) openers.add(k.turnId);
-    return { id: k.id, ts: k.ts, cost: k.cost, model: k.model,
+    return { id: k.id, ts: k.ts, cost: k.cost, price: k.price, model: k.model,
              tokens: { ...k.tokens }, costParts: { ...k.costParts },
              // History only proves activity at turn granularity. Retain that
              // evidence on calls without pretending it identifies one response.
@@ -525,6 +531,7 @@ function synth(t, roll, createdMs, updatedMs, hist) {
     costParts: roll ? { ...roll.costParts } : ZERO_PARTS(),
     costConfidence: roll ? roll.costConfidence : "n/a",
     unknownModels: roll ? [...roll.unknownModels] : [],
+    pricing: roll ? roll.pricing : [],
     // threads.title runs to 700+ characters on this host; first_user_message is
     // the real opening prompt. Codex has no summary, and threads.preview is only
     // a truncation of the same prompt, so claiming one would be a lie -- describe()

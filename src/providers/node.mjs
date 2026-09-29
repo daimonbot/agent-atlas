@@ -12,7 +12,20 @@
 // claude.mjs's module-level `name` and is now always `extra.provider` -- the
 // key the codex leaf and the codex provider already set, so neither of those
 // call sites had to move.
-import { ZERO_PARTS } from "../prices.mjs";
+import { ZERO_PARTS } from "../pricing/index.mjs";
+
+/**
+ * The confidence of a subtree total from its own part's and its children's.
+ * "n/a" only when nothing in it is priced -- a priced child under an unpriced
+ * parent is a known lower bound, "partial", and must not be hidden as unknown.
+ * Any unpriced or partial part makes the whole partial.
+ */
+export function rollConfidence(own, children) {
+  const all = [own, ...children.map(c => c.cost.confidence)];
+  if (all.every(c => c === "n/a")) return "n/a";
+  if (all.some(c => c === "n/a" || c === "partial")) return "partial";
+  return own === "verified" && all.includes("computed") ? "computed" : own;
+}
 
 /**
  * One tree node.
@@ -57,11 +70,7 @@ export function finish(agent, description, agentId, via, st, children, extra, tu
   }
   const childUsd = children.reduce((a, c) => a + c.cost.total, 0);
   const own = st ? st.costOwn : 0;
-  let conf = st ? st.costConfidence : "n/a";
-  // A displayed subtree is incomplete if any descendant is incomplete, even
-  // when this node's own token records were fully priced.
-  if (children.some(c => c.cost.confidence === "partial" || c.cost.confidence === "n/a"))
-    conf = conf === "n/a" ? "n/a" : "partial";
+  const conf = rollConfidence(st ? st.costConfidence : "n/a", children);
   // Human effort belongs to the session a person typed into: a subagent's
   // "user message" is its parent's errand, so only a root node keeps the
   // parser's count. This is the single place root-ness is enforced, and the
@@ -95,8 +104,12 @@ export function finish(agent, description, agentId, via, st, children, extra, tu
     ...("round" in extra && extra.round !== undefined ? { round: extra.round } : {}),
     ...(extra.missingTranscript ? { missingTranscript: true } : {}),
     ...(extra.reported ? { reported: extra.reported } : {}),
+    // confidence covers the subtree (what `total` shows); ownConfidence covers
+    // `own` alone. "n/a" means unknown, never zero: renderers print it as such.
+    // provenance lists every price entry this node's own calls were priced with.
     cost: { own: +own.toFixed(4), children: +childUsd.toFixed(4),
-            total, confidence: conf },
+            total, confidence: conf, ownConfidence: st ? st.costConfidence : "n/a",
+            provenance: (st && st.pricing) || [] },
     turns,
     calls: callList,
     children,

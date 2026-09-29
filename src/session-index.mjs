@@ -5,6 +5,14 @@ export const LIVE_MS = 120_000;
 const TOKEN_KEYS = ["in", "out", "cr", "cw"];
 const number = value => Number.isFinite(value) ? value : 0;
 
+function unknownModels(node, out = new Set()) {
+  for (const m of node.unknownModels || []) out.add(m);
+  for (const child of node.children) unknownModels(child, out);
+  return out;
+}
+// A cost that is not fully known: "n/a" (nothing priced) or "partial" (a lower bound).
+const unsure = row => row.costConfidence === "n/a" || row.costConfidence === "partial";
+
 export function countAgents(node) {
   return node.children.reduce((total, child) => total + 1 + countAgents(child), 0);
 }
@@ -23,6 +31,7 @@ export function toSessionRow(session, tree, now = Date.now()) {
     costPerHumanMsg: tree.costPerHumanMsg, callsPerHumanMsg: tree.callsPerHumanMsg,
     agentMs: agentMs(tree), byAgent: perAgent(tree), model, workspace: w, version: tree.version,
     tokens: totals.t, tokenCost: totals.d, cost: tree.cost.total,
+    costConfidence: tree.cost.confidence, unknownModels: [...unknownModels(tree)],
   };
 }
 
@@ -64,25 +73,30 @@ function metric(row, key) {
 
 function aggregate(rows) {
   const token = { in: 0, out: 0, cr: 0, cw: 0 }, tokenCost = { in: 0, out: 0, cr: 0, cw: 0 };
-  let cost = 0, agents = 0, calls = 0, agentMs = 0, humanMsgs = 0;
+  let cost = 0, agents = 0, calls = 0, agentMs = 0, humanMsgs = 0, unpriced = 0;
   const costs = [];
   for (const row of rows) {
     cost += number(row.cost); agents += number(row.agents); calls += number(row.apiCalls);
     agentMs += number(row.agentMs); humanMsgs += number(row.humanMsgs); costs.push(number(row.cost));
+    if (unsure(row)) unpriced++;
     for (const key of TOKEN_KEYS) { token[key] += number(row.tokens?.[key]); tokenCost[key] += number(row.tokenCost?.[key]); }
   }
   costs.sort((a, b) => a - b);
-  return { cost, agents, calls, agentMs, humanMsgs, token, tokenCost, average: rows.length ? cost / rows.length : null,
+  // unpriced > 0 makes every cost figure below a lower bound.
+  return { cost, unpriced, agents, calls, agentMs, humanMsgs, token, tokenCost, average: rows.length ? cost / rows.length : null,
     median: rows.length ? costs[costs.length >> 1] : null, costPerHumanMsg: humanMsgs ? cost / humanMsgs : null,
     callsPerHumanMsg: humanMsgs ? calls / humanMsgs : null };
 }
 
 function breakdown(rows, by, metricKey) {
   const groups = new Map();
-  const add = (key, count, value, tokenCost) => { const prior = groups.get(key) || { key, count: 0, value: 0, tokenCost: { in: 0, out: 0, cr: 0, cw: 0 } }; prior.count += count; prior.value += value; for (const k of TOKEN_KEYS) prior.tokenCost[k] += number(tokenCost?.[k]); groups.set(key, prior); };
+  // na / pa count the contributions whose cost is unknown / a lower bound; the
+  // group's costConfidence is "n/a" when every contribution is unknown.
+  const add = (key, count, value, tokenCost, na = 0, pa = 0) => { const prior = groups.get(key) || { key, count: 0, value: 0, tokenCost: { in: 0, out: 0, cr: 0, cw: 0 }, na: 0, pa: 0 }; prior.count += count; prior.value += value; prior.na += na; prior.pa += pa; for (const k of TOKEN_KEYS) prior.tokenCost[k] += number(tokenCost?.[k]); groups.set(key, prior); };
+  const rowConf = row => [row.costConfidence === "n/a" ? 1 : 0, row.costConfidence === "partial" ? 1 : 0];
   for (const row of rows) {
     if (by === "model" || by === "project") {
-      const key = by === "project" ? (row.workspace?.label || row.project || "—") : (row.model || "—"); add(key, 1, metric(row, metricKey), row.tokenCost);
+      const key = by === "project" ? (row.workspace?.label || row.project || "—") : (row.model || "—"); add(key, 1, metric(row, metricKey), row.tokenCost, ...rowConf(row));
       continue;
     }
     const child = { cost: 0, agents: 0, agentMs: 0, token: { in: 0, out: 0, cr: 0, cw: 0 }, tokenCost: { in: 0, out: 0, cr: 0, cw: 0 } };
@@ -90,18 +104,20 @@ function breakdown(rows, by, metricKey) {
       child.cost += number(agent.o); child.agents += number(agent.c); child.agentMs += number(agent.ms);
       for (let i = 0; i < TOKEN_KEYS.length; i++) { const tokenKey = TOKEN_KEYS[i]; child.token[tokenKey] += number(agent.t?.[i]); child.tokenCost[tokenKey] += number(agent.d?.[i]); }
       const value = metricKey === "cost" ? number(agent.o) : metricKey === "agents" || metricKey === "sessions" ? number(agent.c) : metricKey === "agentMs" ? number(agent.ms) : metricKey === "duration" ? number(agent.ms) / 1000 : metricKey === "calls" || metricKey === "humanMsgs" ? 0 : number(agent.t?.[TOKEN_KEYS.indexOf(metricKey)]);
-      add(key, number(agent.c), value, Object.fromEntries(TOKEN_KEYS.map((tokenKey, i) => [tokenKey, number(agent.d?.[i])])));
+      add(key, number(agent.c), value, Object.fromEntries(TOKEN_KEYS.map((tokenKey, i) => [tokenKey, number(agent.d?.[i])])), number(agent.na), number(agent.pa));
     }
     const remainderTokens = Object.fromEntries(TOKEN_KEYS.map(key => [key, Math.max(0, number(row.tokens?.[key]) - child.token[key])]));
     const remainderCost = Object.fromEntries(TOKEN_KEYS.map(key => [key, Math.max(0, number(row.tokenCost?.[key]) - child.tokenCost[key])]));
     const mainValue = metricKey === "cost" ? Math.max(0, number(row.cost) - child.cost) : metricKey === "agents" ? Math.max(0, number(row.agents) - child.agents) : metricKey === "sessions" ? 1 : metricKey === "calls" ? number(row.apiCalls) : metricKey === "humanMsgs" ? number(row.humanMsgs) : metricKey === "duration" ? number(row.durationS) : metricKey === "agentMs" ? Math.max(0, number(row.agentMs) - child.agentMs) : remainderTokens[metricKey];
-    if (mainValue || TOKEN_KEYS.some(key => remainderTokens[key] || remainderCost[key])) add("main", 1, mainValue, remainderCost);
+    if (mainValue || TOKEN_KEYS.some(key => remainderTokens[key] || remainderCost[key])) add("main", 1, mainValue, remainderCost, ...rowConf(row));
   }
-  return [...groups.values()].sort((a, b) => b.value - a.value || a.key.localeCompare(b.key));
+  return [...groups.values()].map(({ na, pa, ...g }) => ({ ...g, costConfidence: na && na === g.count ? "n/a" : na || pa ? "partial" : undefined }))
+    .sort((a, b) => b.value - a.value || a.key.localeCompare(b.key));
 }
 export function querySessions(rows, input) {
   const q = normalizeSessionQuery(input);
-  const matched = rows.filter(row => number(row.cost) >= q.minCost && (!q.project || (row.workspace?.label || row.project) === q.project) &&
+  // A cost that is not fully known cannot be ruled below a threshold, so it is never filtered out by one.
+  const matched = rows.filter(row => (number(row.cost) >= q.minCost || unsure(row)) && (!q.project || (row.workspace?.label || row.project) === q.project) &&
     (!q.model || row.model === q.model) && (!q.live || row.live) && (!row.start || (Date.parse(row.start) >= q.from && Date.parse(row.start) <= q.to)) &&
     (!q.q || haystack(row).includes(q.q)));
   matched.sort((a, b) => { const av = metric(a, q.sort), bv = metric(b, q.sort); const compared = typeof av === "string" ? av.localeCompare(bv) : av - bv; return q.dir * (compared || a.id.localeCompare(b.id)); });

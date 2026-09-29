@@ -4,6 +4,12 @@ import { parentPort } from "node:worker_threads";
 import * as providers from "./providers/index.mjs";
 import { describe, workspace } from "./providers/index.mjs";
 import { LIVE_MS, toSessionRow } from "./session-index.mjs";
+import { refreshPrices, pricingRevision } from "./pricing/index.mjs";
+
+// Prices refresh in the background and are never awaited: a scan prices with
+// whatever the ledger holds at that moment. refreshPrices() is a no-op until a
+// source is due again (daily), so calling it on every scan costs nothing.
+const refresh = () => { refreshPrices().catch(() => {}); };
 
 const parserCache = new Map();
 const summaries = new Map();
@@ -19,19 +25,22 @@ function fingerprint(file) {
   visit(file); visit(sessionFolder(file)); return { stamp: entries.join("|"), files };
 }
 function scan() {
+  refresh();
   const now = Date.now();
   const sessions = providers.discover().sort((a, b) => b.mtimeMs - a.mtimeMs);
   const keyOf = session => `${session.provider}:${session.id}`;
   const active = new Set(sessions.map(keyOf)), activeFiles = new Set();
   for (const id of summaries.keys()) if (!active.has(id)) summaries.delete(id);
   const rows = sessions.map(session => {
-    const key = keyOf(session), fingerprinted = fingerprint(session.path); fingerprinted.files.forEach(file => activeFiles.add(file)); const stamp = fingerprinted.stamp || `${session.mtimeMs}:${session.size}`; const previous = summaries.get(key);
+    const key = keyOf(session), fingerprinted = fingerprint(session.path); fingerprinted.files.forEach(file => activeFiles.add(file)); const stamp = (fingerprinted.stamp || `${session.mtimeMs}:${session.size}`) + "|prices:" + pricingRevision(); const previous = summaries.get(key);
     if (previous && previous.path === session.path && previous.stamp === stamp) return { ...previous.row, live: now - session.mtimeMs < LIVE_MS };
     const row = toSessionRow(session, providers.buildTree(session, parserCache), now);
     summaries.set(key, { ref: session, path: session.path, stamp, row }); return row;
   });
   for (const key of parserCache.keys()) if (!activeFiles.has(key)) parserCache.delete(key);
-  const signature = rows.map(row => row.id + ":" + (summaries.get(row.id)?.stamp || "") + ":" + Number(row.live)).join("|");
+  // Keyed like summaries (provider:id): looking a row up by its bare id always
+  // missed, so a re-priced or grown session never registered as a change.
+  const signature = sessions.map((session, i) => keyOf(session) + ":" + (summaries.get(keyOf(session))?.stamp || "") + ":" + Number(rows[i].live)).join("|");
   const changed = signature !== lastSignature; if (changed) { lastSignature = signature; lastRows = rows; }
   return { rows: changed ? rows : lastRows, scannedAt: now, changed };
 }

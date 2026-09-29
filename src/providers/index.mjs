@@ -4,6 +4,7 @@
 // carries its own `provider`, which is the only dispatch key buildTree needs.
 import * as claude from "./claude.mjs";
 import * as codex from "./codex.mjs";
+import { rollConfidence } from "./node.mjs";
 
 // Order is not part of the contract -- both consumers sort by mtimeMs
 // immediately -- but it is fixed anyway so refFromPath is deterministic and so
@@ -53,8 +54,7 @@ function hydrateCodex(node, cache) {
   const children = node.children.reduce((sum, child) => sum + child.cost.total, 0);
   node.cost.children = +children.toFixed(4);
   node.cost.total = +(own + children).toFixed(4);
-  if (node.children.some(child => child.cost.confidence === "partial" || child.cost.confidence === "n/a"))
-    node.cost.confidence = node.cost.confidence === "n/a" ? "n/a" : "partial";
+  node.cost.confidence = rollConfidence(node.cost.ownConfidence, node.children);
 }
 
 /** The first provider that claims a path argument, or null if none does. */

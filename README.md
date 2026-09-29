@@ -1,8 +1,9 @@
 # agent-atlas
 
 Provider-agnostic cost & agent-tree explorer for AI coding sessions.
-**React 19 + Vite UI**, backed by a Node 22+ server. No runtime outbound network, no telemetry,
-and binds `127.0.0.1` by default.
+**React 19 + Vite UI**, backed by a Node 22+ server. No telemetry, and binds `127.0.0.1` by
+default. The only outbound request is a daily read of the vendors' public price pages
+(see [Pricing](#pricing)); `AGENT_ATLAS_PRICING=offline` turns it off.
 
 Reads the transcripts your agent harness already writes, builds a nested tree of
 every agent that ran (main → subagents → their subagents, any depth),
@@ -96,10 +97,9 @@ Implemented:
   process, the first time the store is opened. `NODE_NO_WARNINGS=1` silences it
   for `--json` pipelines. On a host that never ran Codex, nothing is read, no
   warning is printed, and nothing about Claude sessions changes.
-  Note the index's default filters hide cheap sessions — `min $` ships ticked at
-  `0.5` over a 30-day window — so a Codex session on a model with no price row
-  (cost `0`, `n/a`) does not appear on `/` until you untick it. Pre-existing and
-  provider-neutral, but worth knowing before concluding a session is missing.
+  A session whose cost is not fully known (`n/a` or `partial`, see
+  [Pricing](#pricing)) is never hidden by the index's `min $` filter: a threshold
+  cannot rule out a figure that is unknown.
 
 Planned (design notes, not yet implemented):
 
@@ -112,8 +112,8 @@ which is why it is the only mechanism here: when a Bash
 `tool_use` whose command mentions `codex` returns a `tool_result` carrying
 codex's own `session id: <uuid>` line, agent-atlas emits one `CLI:codex` leaf
 per distinct uuid per tree, under the agent whose transcript it was read from.
-It is a stub — `cost` is always `0` / `n/a`, since no Codex price table
-exists — and the banner fields it carries (`tokensUsed`, `sandbox`,
+It is a stub — its own `cost` is `n/a` (the banner carries no per-call usage)
+until the codex provider replaces it with the real thread — and the banner fields it carries (`tokensUsed`, `sandbox`,
 `workdir`, `approval`, `codexVersion`, under `reported`) are harvested
 only from a complete printed banner; a grep or log re-read yields the session id
 and nothing else. **Those `reported.*` key names are provisional**, and may be
@@ -125,18 +125,68 @@ tool call carries no command to anchor on). Neither leaves a trace in the tree.
 
 ## Pricing
 
-`src/prices.mjs`. Anthropic list prices with cache multipliers (0.1× read,
-1.25× 5m write, 2× 1h write) **validated to 8 decimals against the harness's
-own `total_cost_usd`** for `haiku-4-5` and `opus-5`; other models use the same
-multipliers and are flagged `computed`. Sonnet 5's introductory window
-(≤ 2026-08-31) is handled.
+No price is written in the source. `src/pricing/` resolves every API call's price at
+runtime from the vendors' own published price pages, and every figure carries where it
+came from.
 
-The same file carries a `CODEX` table of OpenAI list prices for the Codex
-provider, sourced and dated in its own header comment. All three rows are
-`computed` — Codex exposes no `total_cost_usd` to validate against. `gpt-5.6-sol`'s
-rate is **promotional through ~2026-11-21** and no post-window rate is published,
-so no time-window branch is built for it: the far side would be a guess. A Codex
-model with no row prices `n/a`, never `$0.00`.
+**Sources.** The official pages, read as the Markdown each vendor serves next to the
+HTML page:
+
+| Vendor (harness) | Source |
+|---|---|
+| Anthropic (Claude Code) | <https://platform.claude.com/docs/en/about-claude/pricing.md> — the *Model pricing* table: input, 5m/1h cache writes, cache hits, output |
+| OpenAI (Codex) | <https://developers.openai.com/api/docs/pricing.md> — the *Standard* table, short- and long-context (> 272K input tokens per request) halves |
+
+`src/pricing/sources.mjs` holds the two parsers. They are strict: a page whose table
+cannot be read, or that yields fewer than five priced rows, is a failed refresh, never
+a price. A rate a page does not publish (e.g. cache writes on `gpt-5.5`) stays
+unknown — never derived from a multiplier.
+
+**Ledger, and why history does not move.** Prices live in an append-only ledger of
+dated entries, merged from two files:
+
+- `src/pricing/snapshot.json` — bundled, the last-known prices, written by
+  `npm run prices:snapshot` from the same sources and parsers. It is what an offline
+  host prices with. Refresh it before a release and review the diff: entries are only
+  appended, so the diff is exactly the prices that changed.
+- the local cache — prices observed live, at `$XDG_CACHE_HOME/agent-atlas/prices.json`
+  (`~/.cache/…` by default; override with `AGENT_ATLAS_PRICES_CACHE`).
+
+A refresh that sees a different rate appends an entry effective **from the moment it
+was observed**; a call made earlier keeps the price it had. A model's first entry
+applies back to its first use, because no page says when a price started. A failed or
+malformed refresh appends nothing, and a model that disappears from a page keeps its
+entries.
+
+**Refresh and cache policy.** Each source is re-read at most once every 24 h, a failed
+one is retried after an hour, and nothing is fetched while the cache is fresh.
+`serve` refreshes in the background of its index worker and never waits for it;
+`list`/`tree`/`export` give a due refresh up to 2 s per source and then carry on. A
+source that is down, slow or redesigned never blocks session discovery: pricing just
+uses the cache and the snapshot. `AGENT_ATLAS_PRICING=offline` disables the network
+entirely.
+
+**Confidence.** Each node's `cost.confidence` (subtree) and `cost.ownConfidence`:
+
+- `verified` — list price × tokens, with the arithmetic reproduced to 8 decimals
+  against the harness's own `total_cost_usd` (`claude-opus-5`, `claude-haiku-4-5`,
+  2026-09-01; the flag is on those ledger entries and does not carry to a new price).
+- `computed` — list price × tokens from an official source, not independently checked.
+  Codex has no `total_cost_usd` to check against, so Codex is always `computed`.
+- `partial` — some calls, or some token class, had no price; the figure is a **lower
+  bound** and renders as `≥ $x`.
+- `n/a` — nothing was priced (e.g. `codex-auto-review`, which no page lists). It
+  renders as `n/a`, **never `$0.00`**, and an unpriced call's `cost` is `null`.
+
+**Provenance.** `cost.provenance` lists every ledger entry the node's own calls were
+priced with (`vendor`, `model`, `currency`, per-class `rates`, `long`-context rates,
+`from`, `observedAt`, `source.kind` bundled/live and `source.url`), and each call
+carries the `price` id of its entry.
+
+Not modelled: Batch/Flex/Fast (priority) tiers and data-residency uplifts — the
+transcripts do not record them in a form priced here — and `gpt-5.6-sol`'s rate is the
+published promotional one (through at least 2026-11-21); when OpenAI changes it, the
+next refresh records the new rate from that moment on.
 
 ## Caveats
 

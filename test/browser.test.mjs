@@ -7,6 +7,9 @@ import { once } from "node:events";
 import { chromium } from "@playwright/test";
 import { serve } from "../src/server.mjs";
 
+// The index worker refreshes prices in the background; a test must not touch the network.
+process.env.AGENT_ATLAS_PRICING = "offline";
+
 const id = "11111111-1111-4111-8111-111111111111";
 const line = value => JSON.stringify(value) + "\n";
 function fixture(root) {

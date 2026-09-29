@@ -7,6 +7,9 @@ const usd = n => n > 0 && n < 0.01 ? "$" + n.toFixed(4) : "$" + n.toFixed(2);
 // confidence "verified", and `$0.00` would still be the wrong thing to print for it.
 // Sub-figures (per-token-class, $/msg, aggregates over many sessions) keep calling usd().
 export const money = v => (v ? usd(v) : "·");
+// A per-node figure with its confidence: "n/a" is an unknown price, never zero,
+// and "partial" is a lower bound. The terminal tree and the CLI list use this.
+export const costLabel = (v, confidence) => confidence === "n/a" ? "n/a" : (confidence === "partial" ? "≥" : "") + money(v);
 const num = n => (n ?? 0).toLocaleString("en");
 export const fmtDur = s => s == null ? "" :
   s >= 3600 ? (s / 3600).toFixed(1) + "h" : s >= 60 ? Math.round(s / 60) + "m" : s + "s";
@@ -154,9 +157,12 @@ export function perAgent(root) {
   (function walk(n, depth) {
     if (depth) {
       const p = n.costParts || { in: 0, out: 0, cr: 0, cw: 0 };
+      // na / pa: nodes whose own cost is unknown / only a lower bound, so a
+      // breakdown can say so instead of summing them as $0.
       const g = by[n.agent] || (by[n.agent] = { c: 0, o: 0, d: [0, 0, 0, 0], ms: 0,
-        t: [0, 0, 0, 0] });
+        t: [0, 0, 0, 0], na: 0, pa: 0 });
       g.c++; g.o += n.cost.own;
+      if (n.cost.ownConfidence === "n/a") g.na++; else if (n.cost.ownConfidence === "partial") g.pa++;
       g.d[0] += p.in; g.d[1] += p.out; g.d[2] += p.cr; g.d[3] += p.cw;
       g.t[0] += n.tokens.input; g.t[1] += n.tokens.output;
       g.t[2] += n.tokens.cacheRead; g.t[3] += n.tokens.cacheWrite5m + n.tokens.cacheWrite1h;
@@ -1664,8 +1670,8 @@ export function treeTerminal(tree, width = process.stdout.columns || 120) {
   const out = [];
   function line(n, prefix, childPrefix) {
     const badge = n.via === "cli" ? `[CLI${n.provider !== "claude" ? ":" + n.provider : ""}] ` : "";
-    const cost = money(n.cost.total) +
-      (n.children.length ? ` (own ${money(n.cost.own)} + sub ${money(n.cost.children)})` : "") +
+    const cost = costLabel(n.cost.total, n.cost.confidence) +
+      (n.children.length ? ` (own ${costLabel(n.cost.own, n.cost.ownConfidence)} + sub ${money(n.cost.children)})` : "") +
       (n.cost.confidence === "computed" ? " ±" : n.cost.confidence === "reported" ? " (reported)" : "");
     const meta = `${shortModel(n.model)} ${n.effort.join(",")} ${fmtDur(n.durationS)} ${n.apiCalls}c out ${kTok(n.tokens.output)} cR ${kTok(n.tokens.cacheRead)} cW ${kTok(n.tokens.cacheWrite5m + n.tokens.cacheWrite1h)}` +
       (n.reported?.tokensUsed != null ? ` rep ${num(n.reported.tokensUsed)} tok` : "");

@@ -6,6 +6,9 @@ import path from "node:path";
 import { once } from "node:events";
 import { serve } from "../src/server.mjs";
 
+// The index worker refreshes prices in the background; a test must not touch the network.
+process.env.AGENT_ATLAS_PRICING = "offline";
+
 test("an empty corpus changes from indexing to complete without a row revision", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-atlas-empty-")); const codexRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-atlas-empty-codex-"));
   const previous = process.env.AGENT_ATLAS_CLAUDE_ROOT, previousCodex = process.env.AGENT_ATLAS_CODEX_ROOT;
