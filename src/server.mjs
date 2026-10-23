@@ -53,9 +53,9 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
     return send(res, 404, "text/plain; charset=utf-8", "not found");
   };
   const srv = http.createServer(async (req, res) => {
+    if (!hostAllowed(req)) return send(res, 403, "text/plain; charset=utf-8", "forbidden host");
     const url = new URL(req.url, "http://agent-atlas.local"); if (!allowed(url) && !url.pathname.startsWith("/assets/")) return send(res, 403, "text/plain; charset=utf-8", "forbidden");
     try {
-      if (url.pathname.startsWith("/api/") && !hostAllowed(req)) return send(res, 403, "text/plain; charset=utf-8", "forbidden host");
       if (url.pathname === "/healthz") return json(res, 200, { ok: true, ...status() });
       if (url.pathname.startsWith("/api/cursor/")) return await cursorRoute(req, res, url);
       if (url.pathname === "/api/sessions") return json(res, 200, rows);

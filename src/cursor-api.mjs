@@ -129,8 +129,15 @@ export async function fetchUsageEvents(token, { fetchImpl = fetch, now = Date.no
 const eventKey = e => [e.timestamp, e.userEmail, e.model, e.conversationId || "", e.tokenUsage?.inputTokens ?? "", e.tokenUsage?.outputTokens ?? ""].join("|");
 
 export function readCache() {
-  try { const data = JSON.parse(fs.readFileSync(eventsPath(), "utf8")); return { events: Array.isArray(data.events) ? data.events : [], truncated: !!data.truncated, fingerprint: data.fingerprint || null }; }
-  catch { return { events: [], truncated: false, fingerprint: null }; }
+  try { const data = JSON.parse(fs.readFileSync(eventsPath(), "utf8")); return { events: Array.isArray(data.events) ? data.events : [], incomplete: Array.isArray(data.incomplete) ? data.incomplete : [], fingerprint: data.fingerprint || null }; }
+  catch { return { events: [], incomplete: [], fingerprint: null }; }
+}
+/** Remove [s,e] from each [a,b] range (null removes nothing). */
+function subtract(ranges, cut) {
+  if (!cut) return [...ranges];
+  const [s, e] = cut, out = [];
+  for (const [a, b] of ranges) { if (a < s) out.push([a, Math.min(b, s)]); if (b > e) out.push([Math.max(a, e), b]); }
+  return out;
 }
 export const readCachedEvents = () => readCache().events;
 
@@ -141,12 +148,17 @@ export async function syncCursor({ fetchImpl = fetch, now = Date.now(), maxPages
   const started = generation, print = fingerprint(token);
   try {
     const { events: fresh, truncated } = await fetchUsageEvents(token, { fetchImpl, now, maxPages });
-    if (started !== generation) return { ok: false, message: "the key changed during the sync; result discarded" };
+    // Another server sharing this config dir may have removed or replaced the key.
+    if (started !== generation || readToken() === null || fingerprint(readToken()) !== print) return { ok: false, message: "the key changed during the sync; result discarded" };
     const cache = readCache();
+    // Sticky: a truncated sync marks its window incomplete; only a later full sync covers (parts of) it.
+    const window = [now - WINDOW_DAYS * 864e5, now], mine = cache.fingerprint === print;
+    const incomplete = subtract(mine ? cache.incomplete : [], truncated ? null : window);
+    if (truncated) incomplete.push(window);
     const merged = new Map((cache.fingerprint === print ? cache.events : []).map(e => [eventKey(e), e]));
     for (const e of fresh) merged.set(eventKey(e), e);
     const events = [...merged.values()].sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
-    writePrivate(eventsPath(), JSON.stringify({ syncedAt: now, fingerprint: print, truncated, events }));
-    return { ok: true, fetched: fresh.length, cached: events.length, syncedAt: now, truncated };
+    writePrivate(eventsPath(), JSON.stringify({ syncedAt: now, fingerprint: print, incomplete, events }));
+    return { ok: true, fetched: fresh.length, cached: events.length, syncedAt: now, truncated: incomplete.length > 0 };
   } catch (error) { return { ok: false, message: error.message }; }
 }

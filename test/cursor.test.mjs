@@ -121,6 +121,8 @@ test("server: save, test, list sessions with provider, status never leaks the ke
     const raw = (method, p, headers, body) => new Promise((resolve, reject) => { const r = http.request({ host: "127.0.0.1", port: server.address().port, method, path: p, headers }, res => { res.resume(); res.on("end", () => resolve(res.statusCode)); }); r.on("error", reject); r.end(body); });
     const rebound = "attacker.example:" + server.address().port;
     assert.equal(await raw("PUT", "/api/cursor/token", { host: rebound, origin: "http://" + rebound, "x-atlas-csrf": csrf, "content-type": "application/json" }, JSON.stringify({ token: KEY })), 403);
+    assert.equal(await raw("GET", "/", { host: rebound }), 403);
+    assert.equal(await raw("GET", "/assets/x.js", { host: rebound }), 403);
     assert.equal(await raw("GET", "/api/cursor/status", { host: rebound }), 403);
     assert.equal(await raw("GET", "/api/ui/sessions", { host: rebound }), 403);
     assert.equal(await raw("GET", "/api/cursor/status", { host: "localhost:" + server.address().port }), 200);
@@ -184,4 +186,25 @@ test("hitting the page cap while more pages remain marks the data truncated ever
   assert.equal(result.ok, true); assert.equal(result.truncated, true);
   const tree = cursor.buildTree(cursor.discover()[0]);
   assert.equal(tree.truncated, true); assert.match(tree.identity?.customTitle ?? tree.agent, /incomplete/);
+}));
+
+test("incompleteness is sticky across syncs until a full sync covers the range", withConfig(async () => {
+  api.saveToken(KEY);
+  const more = async () => new Response(JSON.stringify({ ...fixture, pagination: { hasNextPage: true } }), { status: 200 });
+  const t0 = 1790000000000, day = 864e5;
+  assert.equal((await api.syncCursor({ fetchImpl: more, maxPages: 1, now: t0 })).truncated, true);
+  // a full sync of a window that does not reach back far enough leaves the older part incomplete
+  assert.equal((await api.syncCursor({ fetchImpl: mockFetch(), now: t0 + 10 * day })).truncated, true);
+  assert.equal(cursor.buildTree(cursor.discover()[0]).truncated, true);
+  // once the incomplete range is fully covered, the flag clears
+  assert.equal((await api.syncCursor({ fetchImpl: mockFetch(), now: t0 })).truncated, false);
+  assert.equal(cursor.buildTree(cursor.discover()[0]).truncated, false);
+}));
+
+test("a sync does not write if the key file changed under it (another process)", withConfig(async () => {
+  api.saveToken(KEY);
+  let release; const gate = new Promise(r => { release = r; });
+  const pending = api.syncCursor({ fetchImpl: async () => { await gate; return new Response(JSON.stringify(fixture), { status: 200 }); } });
+  fs.rmSync(path.join(api.configDir(), "cursor-token")); // simulates a second server removing the key
+  release(); assert.equal((await pending).ok, false); assert.equal(fs.existsSync(api.eventsPath()), false);
 }));

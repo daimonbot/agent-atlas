@@ -50,7 +50,7 @@ let memo = null;
 function sessions() {
   let stat; try { stat = fs.statSync(eventsPath()); } catch { return []; }
   const stamp = stat.mtimeMs + ":" + stat.size;
-  if (!memo || memo.stamp !== stamp) { const cache = readCache(); memo = { stamp, groups: groupEvents(cache.events), truncated: cache.truncated }; }
+  if (!memo || memo.stamp !== stamp) { const cache = readCache(); memo = { stamp, groups: groupEvents(cache.events), truncated: cache.incomplete.length > 0 }; }
   return memo.groups;
 }
 
