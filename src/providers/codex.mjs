@@ -251,7 +251,7 @@ function readRollout(file) {
       pr = priceCodex(model, r.ts, uu);
       if (pr.unknownModel != null) unknown.add(pr.unknownModel);
       if (pr.provenance) pricing.set(pr.provenance.model, pr.provenance);
-      if (pr.confidence === "partial") partial = true;
+      if (pr.confidence === "partial") { partial = true; unknown.add(`${model} (no ${pr.missingClasses.join("/")} price)`); }
       byModel.set(model, (byModel.get(model) || 0) + (u.total_tokens || 0));
     }
     if (pr.confidence === "n/a") unpriced++; else priced++;
@@ -267,7 +267,7 @@ function readRollout(file) {
 
     calls.push({ id: r.id ?? null, ts: r.ts ?? null, cost: pr.usd, model,
                  tokens: { in: uu.in, out: uu.out, cr: uu.cr, cw: uu.c5 },
-                 costParts: pr.parts, turnId: r.turnId ?? null });
+                 costParts: pr.parts, confidence: pr.confidence, turnId: r.turnId ?? null });
   }
   calls.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 
@@ -494,7 +494,7 @@ function synth(t, roll, createdMs, updatedMs, hist) {
     const opens = k.turnId != null && hasUser && humanTurns.has(k.turnId) && !openers.has(k.turnId);
     if (opens) openers.add(k.turnId);
     return { id: k.id, ts: k.ts, cost: k.cost, model: k.model,
-             tokens: { ...k.tokens }, costParts: { ...k.costParts },
+             tokens: { ...k.tokens }, costParts: { ...k.costParts }, confidence: k.confidence,
              // History only proves activity at turn granularity. Retain that
              // evidence on calls without pretending it identifies one response.
              acts: Object.entries(tools.get(k.turnId) || {}).map(([name, count]) => ({ name, count, id: null, skill: null, task: null })),

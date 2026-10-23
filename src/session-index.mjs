@@ -69,7 +69,7 @@ function aggregate(rows) {
   let cost = 0, unpriced = 0, agents = 0, calls = 0, agentMs = 0, humanMsgs = 0;
   const costs = [];
   for (const row of rows) {
-    cost += number(row.cost); if (row.unpricedModels?.length) unpriced++; agents += number(row.agents); calls += number(row.apiCalls);
+    cost += number(row.cost); if (row.unpricedModels?.length || row.costConfidence === "n/a") unpriced++; agents += number(row.agents); calls += number(row.apiCalls);
     agentMs += number(row.agentMs); humanMsgs += number(row.humanMsgs); costs.push(number(row.cost));
     for (const key of TOKEN_KEYS) { token[key] += number(row.tokens?.[key]); tokenCost[key] += number(row.tokenCost?.[key]); }
   }
@@ -103,7 +103,7 @@ function breakdown(rows, by, metricKey) {
 }
 export function querySessions(rows, input) {
   const q = normalizeSessionQuery(input);
-  const matched = rows.filter(row => (number(row.cost) >= q.minCost || row.unpricedModels?.length > 0) && (!q.project || (row.workspace?.label || row.project) === q.project) &&
+  const matched = rows.filter(row => (number(row.cost) >= q.minCost || row.unpricedModels?.length > 0 || row.costConfidence === "n/a") && (!q.project || (row.workspace?.label || row.project) === q.project) &&
     (!q.model || row.model === q.model) && (!q.live || row.live) && (!row.start || (Date.parse(row.start) >= q.from && Date.parse(row.start) <= q.to)) &&
     (!q.q || haystack(row).includes(q.q)));
   matched.sort((a, b) => { const av = metric(a, q.sort), bv = metric(b, q.sort); const compared = typeof av === "string" ? av.localeCompare(bv) : av - bv; return q.dir * (compared || a.id.localeCompare(b.id)); });

@@ -1,7 +1,7 @@
 // Public, maintained price catalogues. Each source turns its payload into the
 // same shape: Map<canonical model, {key, p}> with p = $/MTok
 // {in, out, cr, cw5, cw1h}; a class the source does not publish is null.
-import { canonical, isDirect } from "./match.mjs";
+import { exactId, isDirect } from "./match.mjs";
 
 const MTOK = 1e6;
 const per = v => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? +(v * MTOK).toPrecision(10) : null);
@@ -9,7 +9,7 @@ const perStr = v => (v == null || v === "" ? null : per(Number(v)));
 
 function keep(map, key, p) {
   if (p.in == null || p.out == null) return;
-  const canon = canonical(key);
+  const canon = exactId(key);
   if (!canon) return;
   const prev = map.get(canon);
   // Prefer the direct (unprefixed) record; otherwise first seen wins.

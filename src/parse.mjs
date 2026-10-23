@@ -362,7 +362,7 @@ export class SessionFileParser {
       const r = priceClaude(v.model, v.ts, v.u);
       out.push({ id, ts: v.ts, cost: r.usd, model: v.model, pid: turnOf(v.uuid),
         tokens: { in: v.u.in, out: v.u.out, cr: v.u.cr, cw: v.u.c5 + v.u.c1h },
-        costParts: r.parts, acts: v.acts || [] });
+        costParts: r.parts, confidence: r.confidence, acts: v.acts || [] });
     }
     out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
     let prev = null;
@@ -400,7 +400,7 @@ export class SessionFileParser {
       if (r.unknownModel) unknown.add(r.unknownModel);
       if (r.provenance) pricing.set(r.provenance.model, r.provenance);
       if (r.confidence === "n/a") unpriced++; else priced++;
-      if (r.confidence === "partial") partial = true;
+      if (r.confidence === "partial") { partial = true; unknown.add(`${v.model} (no ${r.missingClasses.join("/")} price)`); }
     }
     return {
       model: [...this.models].sort((a, b) => (byModel.get(b) || 0) - (byModel.get(a) || 0)),

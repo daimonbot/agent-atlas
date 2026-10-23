@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { canonical } from "../src/pricing/match.mjs";
+import { canonical, exactId, candidates } from "../src/pricing/match.mjs";
 import { lookup, priceUsage, refresh, resetPricing, pricingRevision, pricingStatus, TTL_MS, RETRY_MS } from "../src/pricing/index.mjs";
 import { priceClaude, priceCodex } from "../src/prices.mjs";
-import { querySessions } from "../src/session-index.mjs";
+import { querySessions, toSessionRow } from "../src/session-index.mjs";
+import { buildTree } from "../src/providers/claude.mjs";
 import { costLabel, unpricedModels } from "../src/render.mjs";
 
 // Every test runs against a private cache dir and overrides file; the network is
@@ -27,7 +28,7 @@ const entry = (input, output, cacheRead, cw5, cw1h) => ({ input_cost_per_token: 
 const litellm = (models = {}) => ({ ...Object.fromEntries(Array.from({ length: 60 }, (_, i) => ["filler-model-" + i, entry(1, 2)])), ...models });
 const router = (models = {}) => ({ data: [...Array.from({ length: 60 }, (_, i) => ({ id: "x/filler-" + i, pricing: { prompt: "0.000001", completion: "0.000002" } })),
   ...Object.entries(models).map(([id, pricing]) => ({ id, pricing }))] });
-const fetcher = (payloads, log = []) => async url => { log.push(url); const p = payloads[url]; if (p instanceof Error) throw p; return p; };
+const fetcher = (payloads, log = []) => async url => { log.push(url); const p = payloads[url]; if (p instanceof Error) throw p; return { json: p, version: "sha256:test-" + log.length }; };
 const LITE = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json", OR = "https://openrouter.ai/api/v1/models";
 const U = { in: 1e6, out: 1e6, cr: 1e6, c5: 1e6, c1h: 1e6 };
 
@@ -38,6 +39,8 @@ test("model names from different harnesses meet in one canonical form", () => {
   assert.equal(canonical("gpt-5.6-sol"), "gpt-5-6-sol");
   assert.equal(canonical("openai/gpt-5.6-sol:batch"), "gpt-5-6-sol");
   assert.equal(canonical("gpt-5.5-2026-04-23"), "gpt-5-5");
+  assert.equal(exactId("gpt-5.5-2026-04-23"), "gpt-5-5-2026-04-23");
+  assert.deepEqual(candidates("anthropic/gpt-4o-2024-05-13"), ["gpt-4o-2024-05-13", "gpt-4o"]);
   assert.equal(canonical("azure/us/gpt-6-astra"), "gpt-6-astra");
   // Distinct models stay distinct: no prefix guessing, no dropping qualifiers.
   assert.notEqual(canonical("claude-opus-5"), canonical("claude-opus-5-5"));
@@ -172,4 +175,76 @@ test("an unknown cost renders as n/a or a lower bound, never $0.00", () => {
   assert.equal(costLabel(leaf([], 1.5)), "$1.50");
   const tree = { unknownModels: [], cost: { total: 2 }, children: [leaf(["gpt-x"], 0)] };
   assert.deepEqual([...unpricedModels(tree)], ["gpt-x"]); assert.equal(costLabel(tree), "≥ $2.00");
+});
+
+test("a dated id keeps its own price: the exact id wins over the date-stripped one", async t => {
+  sandbox(t);
+  // gpt-4o-2024-05-13 was priced $5/$15; the undated gpt-4o (and later snapshots) $2.50/$10.
+  const pay = { [LITE]: litellm({ "gpt-4o": entry(2.5, 10), "gpt-4o-2024-05-13": entry(5, 15), "gpt-4o-2024-08-06": entry(2.5, 10) }), [OR]: router() };
+  await refresh({ fetchJson: fetcher(pay) });
+  assert.deepEqual([lookup("gpt-4o-2024-05-13").p.in, lookup("gpt-4o-2024-05-13").p.out], [5, 15]);
+  assert.equal(lookup("openai/gpt-4o-2024-05-13").p.in, 5);          // prefix normalised, still exact
+  assert.equal(lookup("gpt-4o").p.in, 2.5);
+  assert.equal(lookup("gpt-4o-2031-01-01").p.in, 2.5);               // dated id no source lists: falls back to the undated model
+  assert.equal(lookup("gpt-4o-2031-01-01").provenance.matchedKey, "gpt-4o");
+  // The exact id is searched in EVERY source before the stripped id is tried in any.
+  const pay2 = { [LITE]: litellm({ "acme-1": entry(2.5, 10) }), [OR]: router({ "openai/acme-1-2031-01-01": { prompt: "0.000005", completion: "0.000015" } }) };
+  await refresh({ force: true, fetchJson: fetcher(pay2) });
+  assert.equal(lookup("acme-1-2031-01-01").p.in, 5); assert.equal(lookup("acme-1-2031-01-01").provenance.source, "openrouter");
+  assert.equal(lookup("acme-1-2031-02-02").p.in, 2.5);                 // unlisted date: undated model
+});
+
+test("provenance carries the applied rates, currency and an immutable source version", async t => {
+  sandbox(t);
+  const bundled = lookup("claude-opus-5-5").provenance;
+  assert.equal(bundled.currency, "USD"); assert.deepEqual(bundled.rates, { in: 4, out: 20, cr: 0.2, cw5: 5, cw1h: 8 });
+  assert.match(bundled.sourceVersion, /^sha256:/);
+  await refresh({ fetchJson: fetcher({ [LITE]: litellm({ "claude-opus-7": entry(6, 30) }), [OR]: router() }) });
+  const live = lookup("claude-opus-7").provenance;
+  assert.match(live.sourceVersion, /^sha256:test-/); assert.equal(live.origin, "cache"); assert.deepEqual(live.rates.in, 6);
+  fs.writeFileSync(process.env.AGENT_ATLAS_PRICES_OVERRIDE, JSON.stringify({ "claude-opus-7": { in: 1, out: 2 } }));
+  assert.match(lookup("claude-opus-7").provenance.sourceVersion, /^file:/);
+});
+
+test("concurrent refreshes never erase entries another process wrote", async t => {
+  sandbox(t);
+  const good = { [LITE]: litellm({ "model-a": entry(1, 1) }), [OR]: router() };
+  const slow = { [LITE]: litellm({ "model-b": entry(2, 2) }), [OR]: router() };
+  // Process A reads disk (empty), then is slow; process B fully refreshes meanwhile.
+  let release; const gate = new Promise(r => { release = r; });
+  const a = refresh({ force: true, fetchJson: async (url) => { await gate; return { json: slow[url], version: "A" }; } });
+  await new Promise(r => setTimeout(r, 20));
+  await refresh({ force: true, fetchJson: fetcher(good) });
+  release(); await a;
+  const disk = JSON.parse(fs.readFileSync(process.env.AGENT_ATLAS_PRICES_CACHE, "utf8")).sources.litellm.models;
+  assert.ok(disk["model-a"] && disk["model-b"], "both writers' entries survive");
+  // A failing refresh after that drops nothing.
+  await refresh({ force: true, fetchJson: fetcher({ [LITE]: new Error("down"), [OR]: new Error("down") }) });
+  const after = JSON.parse(fs.readFileSync(process.env.AGENT_ATLAS_PRICES_CACHE, "utf8")).sources;
+  assert.ok(after.litellm.models["model-a"] && after.litellm.models["model-b"]); assert.equal(after.litellm.error, "down");
+  assert.ok(!fs.existsSync(process.env.AGENT_ATLAS_PRICES_CACHE + ".lock"));
+});
+
+// A Claude-format transcript for any model name, to drive the whole stack.
+function session(t, model, usage) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "atlas-sess-")); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, "s.jsonl");
+  fs.writeFileSync(file, JSON.stringify({ type: "user", uuid: "u1", promptId: "p1", timestamp: "2026-10-20T00:00:00Z", message: { role: "user", content: "hi" } }) + "\n" +
+    JSON.stringify({ type: "assistant", uuid: "a1", parentUuid: "u1", promptId: "p1", timestamp: "2026-10-20T00:00:05Z", message: { id: "m1", model, role: "assistant", content: [{ type: "text", text: "ok" }], usage } }) + "\n");
+  const ref = { provider: "claude", id: "s", project: "p", path: file, mtimeMs: Date.parse("2026-10-20T00:00:05Z"), size: 1 };
+  return toSessionRow(ref, buildTree(ref), Date.now());
+}
+
+test("end to end: unknown model and unpublished token class are flagged, kept by the default filter, and per-call confidence is explicit", t => {
+  sandbox(t);
+  const unknown = session(t, "claude-opus-9-9", { input_tokens: 1000, output_tokens: 1000 });
+  assert.equal(unknown.cost, 0); assert.equal(unknown.costConfidence, "n/a"); assert.deepEqual(unknown.unpricedModels, ["claude-opus-9-9"]);
+  // GPT-5.5 publishes no cache-write price: cache-write-only usage prices to $0 but is partial.
+  const partial = session(t, "gpt-5.5", { cache_creation: { ephemeral_5m_input_tokens: 5000 } });
+  assert.equal(partial.cost, 0); assert.equal(partial.costConfidence, "partial");
+  assert.match(partial.unpricedModels[0], /gpt-5\.5 \(no cacheWrite5m price\)/);
+  const known = session(t, "claude-opus-5-5", { input_tokens: 10, output_tokens: 10 });
+  const out = querySessions([unknown, partial, known].map((r, i) => ({ ...r, id: "r" + i })), { from: "2026-10-01" });
+  assert.deepEqual(out.rows.map(r => r.id).sort(), ["r0", "r1"]);     // cheap but fully priced r2 is hidden, the two unknowns are not
+  assert.equal(out.summary.unpriced, 2);
 });

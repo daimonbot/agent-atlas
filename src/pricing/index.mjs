@@ -12,13 +12,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonical } from "./match.mjs";
+import crypto from "node:crypto";
+import { exactId, candidates } from "./match.mjs";
 import { SOURCES, SOURCE_ORDER, MIN_MODELS } from "./sources.mjs";
 
 export const TTL_MS = 24 * 3600e3;
 export const RETRY_MS = 3600e3;
 const SNAPSHOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "snapshot.json");
-const CLASSES = ["in", "out", "cr", "cw5", "cw1h"];
 
 const env = () => process.env;
 export const offline = () => env().AGENT_ATLAS_PRICING === "offline";
@@ -40,7 +40,7 @@ function loadSource(name, snap, cache) {
   const pick = usable(cache) && (!usable(snap) || cache.fetchedAt >= snap.fetchedAt) ? ["cache", cache] : usable(snap) ? ["bundled", snap] : [null, null];
   const [origin, d] = pick;
   const models = new Map(origin ? Object.entries(d.models).filter(([, e]) => validEntry(e)) : []);
-  return { origin: origin || "none", fetchedAt: d?.fetchedAt ?? null, url: SOURCES[name].url, models,
+  return { origin: origin || "none", fetchedAt: d?.fetchedAt ?? null, version: d?.version ?? null, url: SOURCES[name].url, models,
     lastAttempt: cache?.lastAttempt ?? null, error: cache?.error ?? null };
 }
 
@@ -51,7 +51,7 @@ function loadOverrides() {
   overridesStamp = stamp; overrides = new Map();
   const data = stamp ? readJson(file) : null;
   for (const [model, v] of Object.entries(data || {})) {
-    const canon = canonical(model);
+    const canon = exactId(model);
     if (!canon || !v || typeof v.in !== "number" || typeof v.out !== "number") continue;
     const n = k => (typeof v[k] === "number" && v[k] >= 0 ? v[k] : null);
     overrides.set(canon, { key: model, p: { in: v.in, out: v.out, cr: n("cr"), cw5: n("cw5"), cw1h: n("cw1h") } });
@@ -79,17 +79,24 @@ export function resetPricing() { state = null; overrides = new Map(); overridesS
  */
 export function lookup(model) {
   init(); loadOverrides();
-  const canon = canonical(model);
-  if (!canon) return null;
-  const hit = (kind, src, e, extra = {}) => ({ p: e.p, provenance: { model, source: kind, matchedKey: e.key,
-    origin: src.origin, fetchedAt: src.fetchedAt, url: src.url, ...extra } });
-  const o = overrides.get(canon);
-  if (o) return hit("override", { origin: "override", fetchedAt: null, url: overridesFile() }, o);
-  for (const name of SOURCE_ORDER) {
-    const src = state[name], e = src.models.get(canon);
-    if (e) return hit(name, src, e, src.origin === "cache" && Date.now() - Date.parse(src.fetchedAt) > TTL_MS * 7 ? { stale: true } : {});
+  // Most specific identity first, in every source, before any looser one.
+  for (const id of candidates(model)) {
+    const o = overrides.get(id);
+    if (o) return hit(model, "override", { origin: "override", fetchedAt: null, version: "file:" + overridesStamp, url: overridesFile() }, o);
+    for (const name of SOURCE_ORDER) {
+      const src = state[name], e = src.models.get(id);
+      if (e) return hit(model, name, src, e, src.origin === "cache" && Date.now() - Date.parse(src.fetchedAt) > TTL_MS * 7 ? { stale: true } : {});
+    }
   }
   return null;
+}
+
+// Provenance is self-contained: the rates that were applied, their unit and
+// currency, and an immutable identifier of the catalogue version they came from
+// (a content hash), so the answer can be re-derived without trusting the URL.
+function hit(model, kind, src, e, extra = {}) {
+  return { p: e.p, provenance: { model, source: kind, matchedKey: e.key, origin: src.origin, fetchedAt: src.fetchedAt,
+    sourceVersion: src.version ?? null, url: src.url, currency: "USD", unit: "USD per 1M tokens", rates: { ...e.p }, ...extra } };
 }
 
 /**
@@ -123,49 +130,87 @@ async function fetchJson(url, timeoutMs) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const len = Number(res.headers.get("content-length") || 0);
   if (len > 50e6) throw new Error("payload too large");
-  return res.json();
+  const text = await res.text();
+  // The version is a hash of the bytes actually priced from: immutable, unlike the URL.
+  return { json: JSON.parse(text), version: "sha256:" + crypto.createHash("sha256").update(text).digest("hex").slice(0, 16) };
 }
 
-function persist(sources) {
-  const file = cacheFile(); fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ version: 1, sources }));
-  fs.renameSync(tmp, file);
+// Cross-process lock around the read-merge-write of the cache file. Two atlas
+// processes (serve + a CLI call) can refresh at once; without this the later
+// writer would overwrite the other's entries with the state it read before fetching.
+async function withLock(file, fn) {
+  const lock = file + ".lock", deadline = Date.now() + 3000;
+  for (;;) {
+    try { fs.closeSync(fs.openSync(lock, "wx")); break; }
+    catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 15_000) fs.rmSync(lock, { force: true }); } catch { /* raced */ }
+      if (Date.now() > deadline) throw new Error("cache lock busy");
+      await new Promise(r => setTimeout(r, 25 + Math.random() * 50));
+    }
+  }
+  try { return fn(); } finally { fs.rmSync(lock, { force: true }); }
 }
 
 /**
- * Re-read every source that is due. Never throws, never partially applies a
- * source. Returns {refreshed: [...], failed: {name: message}}.
+ * Apply this refresh's outcomes to whatever is on disk NOW. results[name] is
+ * {ok: {models, fetchedAt, version, url, attempt}} or {fail: {message, attempt}}.
+ * A success merges over the disk entries; a failure touches only the attempt
+ * bookkeeping. Nothing in the document is ever dropped.
+ */
+async function persist(results) {
+  const file = cacheFile(); fs.mkdirSync(path.dirname(file), { recursive: true });
+  await withLock(file, () => {
+    const disk = readJson(file)?.sources || {}, out = { ...disk };
+    for (const [name, r] of Object.entries(results)) {
+      const rec = disk[name] || {};
+      if (r.ok) {
+        const models = { ...(rec.models || {}), ...fromMap(r.ok.models) };
+        // Never move a newer concurrent fetch backwards.
+        const newer = rec.fetchedAt && rec.fetchedAt > r.ok.fetchedAt;
+        out[name] = { ...(newer ? rec : { fetchedAt: r.ok.fetchedAt, version: r.ok.version }), url: r.ok.url, models, lastAttempt: r.ok.fetchedAt, error: null };
+      } else out[name] = { ...rec, lastAttempt: r.fail.attempt, error: r.fail.message };
+    }
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ version: 1, sources: out }));
+    fs.renameSync(tmp, file);
+  });
+}
+
+/**
+ * Re-read every source that is due, in parallel. Never throws, never partially
+ * applies a source. Returns {refreshed: [...], failed: {name: message}}.
  */
 export async function refresh({ timeoutMs = 10_000, force = false, fetchJson: fetcher = fetchJson } = {}) {
   init(); loadOverrides();
   const out = { refreshed: [], failed: {} };
   if (offline()) return out;
-  const disk = readJson(cacheFile())?.sources || {}, next = {};
-  let changed = false;
-  for (const name of SOURCE_ORDER) {
+  const disk = readJson(cacheFile())?.sources || {}, results = {};
+  await Promise.all(SOURCE_ORDER.map(async name => {
     const cur = state[name], rec = disk[name] || {};
     const last = Date.parse(rec.lastAttempt || 0) || 0;
-    next[name] = rec;
-    if (!force && last && Date.now() - last < (rec.error ? RETRY_MS : TTL_MS)) continue;
+    if (!force && last && Date.now() - last < (rec.error ? RETRY_MS : TTL_MS)) return;
     const now = new Date().toISOString();
     try {
-      const fresh = SOURCES[name].parse(await fetcher(SOURCES[name].url, timeoutMs));
+      const got = await fetcher(SOURCES[name].url, timeoutMs);
+      const fresh = SOURCES[name].parse(got.json);
       if (fresh.size < MIN_MODELS) throw new Error(`only ${fresh.size} priced models; refusing to replace a good catalogue`);
       // Merge over the previous catalogue: a model an upstream delists keeps its
       // last known price, so old sessions do not fall back to "unknown".
       const models = new Map([...cur.models, ...fresh]);
-      next[name] = { fetchedAt: now, lastAttempt: now, error: null, url: SOURCES[name].url, models: fromMap(models) };
-      state[name] = { origin: "cache", fetchedAt: now, url: SOURCES[name].url, models, lastAttempt: now, error: null };
-      out.refreshed.push(name); changed = true;
+      results[name] = { ok: { models, fetchedAt: now, version: got.version ?? null, url: SOURCES[name].url } };
+      Object.assign(cur, { origin: "cache", fetchedAt: now, version: got.version ?? null, models, lastAttempt: now, error: null });
+      out.refreshed.push(name);
     } catch (e) {
       out.failed[name] = String(e?.message || e);
-      next[name] = { ...rec, lastAttempt: now, error: out.failed[name] }; // keeps the last good models
-      if (cur) cur.error = out.failed[name];
+      results[name] = { fail: { message: out.failed[name], attempt: now } };
+      cur.error = out.failed[name];
     }
+  }));
+  if (Object.keys(results).length) {
+    try { await persist(results); } catch (e) { out.failed.cache = String(e?.message || e); }
   }
-  try { persist(next); } catch (e) { out.failed.cache = String(e?.message || e); }
-  if (changed) revision++;
+  if (out.refreshed.length) revision++;
   return out;
 }
 
@@ -181,9 +226,9 @@ export function pricingStatus() {
 export async function buildSnapshot(fetcher = fetchJson, filter = () => true) {
   const sources = {}, now = new Date().toISOString();
   for (const name of SOURCE_ORDER) {
-    const models = SOURCES[name].parse(await fetcher(SOURCES[name].url, 60_000));
+    const got = await fetcher(SOURCES[name].url, 60_000), models = SOURCES[name].parse(got.json);
     if (models.size < MIN_MODELS) throw new Error(`${name}: only ${models.size} models`);
-    sources[name] = { fetchedAt: now, url: SOURCES[name].url, models: fromMap(new Map([...models].filter(([k, e]) => filter(k, e)))) };
+    sources[name] = { fetchedAt: now, version: got.version ?? null, url: SOURCES[name].url, models: fromMap(new Map([...models].filter(([k, e]) => filter(k, e)))) };
   }
   return { version: 1, sources };
 }

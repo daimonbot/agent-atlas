@@ -35,9 +35,12 @@ function resolveSession(ref) {
 }
 const die = m => { console.error("agent-atlas: " + m); process.exit(1); };
 
-// One-shot commands give a due price refresh a short, bounded chance; an offline
-// or slow source falls back to the cache and bundled snapshot (never an error).
-if (cmd === "list" || cmd === "tree" || cmd === "export") await refreshPrices({ timeoutMs: 2000 });
+// One-shot commands never wait for the network before working: discovery and
+// pricing use the cached or bundled catalogue straight away, while a due refresh
+// runs in parallel (sources concurrently, short timeout) and is awaited only at
+// the end so the cache is warm for the next run. Offline it returns at once.
+const pricesDone = cmd === "list" || cmd === "tree" || cmd === "export"
+  ? refreshPrices({ timeoutMs: 1500 }).catch(() => {}) : Promise.resolve();
 
 if (cmd === "list") {
   const days = +opt("days", 7);
@@ -60,7 +63,7 @@ if (cmd === "list") {
     })
     .filter(r => r.cost >= minCost || r.unpricedModels.length);
   if (sortK === "cost") rows.sort((a, b) => b.cost - a.cost);
-  if (args.includes("--json")) { console.log(JSON.stringify(rows, null, 1)); process.exit(0); }
+  if (args.includes("--json")) { console.log(JSON.stringify(rows, null, 1)); await pricesDone; process.exit(0); }
   for (const r of rows)
     console.log([r.live ? "LIVE" : "    ", r.id.slice(0, 8),
       (r.start || "").slice(0, 16).replace("T", " "), fmtDur(r.durationS).padStart(6),
