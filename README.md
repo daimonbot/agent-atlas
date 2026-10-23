@@ -123,6 +123,10 @@ known false negatives: a launch whose output the harness spilled to
 and a launch run as a background shell and read back via `BashOutput` (that
 tool call carries no command to anchor on). Neither leaves a trace in the tree.
 
+## Cursor
+
+Cursor sessions come from Cursor's Admin API (`POST /teams/filtered-usage-events`), not from local files. Open the "Cursor" panel on the sessions page, paste an Admin API key (created by a team admin at cursor.com/dashboard), and use "Test connection". The key is stored in `~/.config/agent-atlas/cursor-token` (override the directory with `AGENT_ATLAS_CONFIG_DIR`, mode 0600), is sent only to `https://api.cursor.com`, and is never shown again beyond its last 4 characters. Events are synced hourly and on demand, and cached next to the key. Sessions are grouped by `conversationId`, else by user with a 30 minute gap; cost is Cursor's own `totalCents`.
+
 ## Pricing
 
 `src/prices.mjs`. Anthropic list prices with cache multipliers (0.1× read,

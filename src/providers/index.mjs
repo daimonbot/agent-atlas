@@ -4,12 +4,13 @@
 // carries its own `provider`, which is the only dispatch key buildTree needs.
 import * as claude from "./claude.mjs";
 import * as codex from "./codex.mjs";
+import * as cursor from "./cursor.mjs";
 
 // Order is not part of the contract -- both consumers sort by mtimeMs
 // immediately -- but it is fixed anyway so refFromPath is deterministic and so
 // Claude rows stay first among equal-mtimeMs refs (no visible reordering on a
 // host with no Codex data).
-const PROVIDERS = [codex, claude];
+const PROVIDERS = [codex, cursor, claude];
 const byName = new Map(PROVIDERS.map(p => [p.name, p]));
 
 /** Every top-level session ref, from every provider. */

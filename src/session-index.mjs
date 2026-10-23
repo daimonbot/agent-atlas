@@ -15,7 +15,7 @@ export function toSessionRow(session, tree, now = Date.now()) {
   const w = workspace(tree);
   const model = tree.model[0] || null;
   return {
-    id: session.id, project: session.project.replace(/^-/, ""), path: session.path,
+    id: session.id, provider: tree.provider, project: session.project.replace(/^-/, ""), path: session.path,
     name: tree.identity?.agentName || tree.identity?.customTitle || "",
     title: d.title, subtitle: d.subtitle, desc: (tree.firstPrompt || "").slice(0, 220),
     start: tree.start, durationS: tree.durationS, live: now - session.mtimeMs < LIVE_MS,
@@ -26,7 +26,7 @@ export function toSessionRow(session, tree, now = Date.now()) {
   };
 }
 
-const haystack = row => [row.id, row.project, row.name, row.title, row.subtitle, row.desc,
+const haystack = row => [row.id, row.provider, row.project, row.name, row.title, row.subtitle, row.desc,
   row.workspace?.label, row.workspace?.cwd, row.workspace?.branch, row.model].filter(Boolean).join(" ").toLowerCase();
 
 function normalizeDate(value, end) {

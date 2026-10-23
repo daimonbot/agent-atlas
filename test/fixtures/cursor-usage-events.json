@@ -1,0 +1,16 @@
+{
+  "totalUsageEventsCount": 5,
+  "pagination": { "numPages": 1, "currentPage": 1, "pageSize": 1000, "hasNextPage": false, "hasPreviousPage": false },
+  "usageEvents": [
+    { "timestamp": "1790000000000", "userEmail": "dev@example.com", "conversationId": "conv-aaaa1111", "model": "claude-4.5-sonnet", "kind": "Usage-based", "maxMode": false, "requestsCosts": 0, "isTokenBasedCall": true, "isChargeable": true, "isHeadless": false,
+      "tokenUsage": { "inputTokens": 1200, "outputTokens": 300, "cacheWriteTokens": 4000, "cacheReadTokens": 20000, "totalCents": 12.5 }, "chargedCents": 12.5 },
+    { "timestamp": "1790000060000", "userEmail": "dev@example.com", "conversationId": "conv-aaaa1111", "model": "claude-4.5-sonnet", "kind": "Usage-based", "maxMode": false, "requestsCosts": 0, "isTokenBasedCall": true, "isChargeable": true, "isHeadless": false,
+      "tokenUsage": { "inputTokens": 800, "outputTokens": 500, "cacheWriteTokens": 0, "cacheReadTokens": 24000, "totalCents": 7.5 }, "chargedCents": 7.5 },
+    { "timestamp": "1790100000000", "userEmail": "dev@example.com", "model": "gpt-5", "kind": "Included", "maxMode": false, "requestsCosts": 1, "isTokenBasedCall": false, "isChargeable": false, "isHeadless": false },
+    { "timestamp": "1790100600000", "userEmail": "dev@example.com", "model": "gpt-5", "kind": "Usage-based", "maxMode": false, "requestsCosts": 0, "isTokenBasedCall": true, "isChargeable": true, "isHeadless": false,
+      "tokenUsage": { "inputTokens": 100, "outputTokens": 50, "cacheWriteTokens": 0, "cacheReadTokens": 0, "totalCents": 1 }, "chargedCents": 1 },
+    { "timestamp": "1790110000000", "userEmail": "dev@example.com", "model": "gpt-5", "kind": "Usage-based", "maxMode": false, "requestsCosts": 0, "isTokenBasedCall": true, "isChargeable": true, "isHeadless": false,
+      "tokenUsage": { "inputTokens": 10, "outputTokens": 5, "cacheWriteTokens": 0, "cacheReadTokens": 0, "totalCents": 0.5 }, "chargedCents": 0.5 }
+  ],
+  "period": { "startDate": 1789000000000, "endDate": 1791000000000 }
+}

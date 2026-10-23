@@ -5,13 +5,14 @@ import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { querySessions } from "./session-index.mjs";
+import * as cursorApi from "./cursor-api.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(HERE, "..", "dist");
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json; charset=utf-8", ".map": "application/json; charset=utf-8" };
 const CACHE_LIMIT = 64;
 
-export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token = null } = {}) {
+export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token = null, cursorFetch = fetch, cursorSyncS = 3600 } = {}) {
   let rows = [], revision = 0, scannedAt = 0, scanError = null, indexing = true, scanQueued = false, scanActive = false;
   const worker = new Worker(new URL("./index-worker.mjs", import.meta.url));
   let nextRequest = 1; const pending = new Map(), queryCache = new Map();
@@ -27,10 +28,29 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
   const shell = () => { const file = path.join(DIST, "index.html"); return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null; };
   const staticFile = pathname => { const file = path.resolve(DIST, pathname.replace(/^\/+/, "")); return file.startsWith(DIST + path.sep) && fs.existsSync(file) && fs.statSync(file).isFile() ? file : null; };
   const cacheResult = (key, make) => { if (queryCache.has(key)) return queryCache.get(key); const value = make(); queryCache.set(key, value); if (queryCache.size > CACHE_LIMIT) queryCache.delete(queryCache.keys().next().value); return value; };
+  // Cursor: the key lives in the config dir; nothing below ever returns it.
+  let cursorSync = null;
+  const cursorStatus = () => ({ ...cursorApi.tokenStatus(), sync: cursorSync });
+  const syncCursor = async () => { if (!cursorApi.readToken()) return; cursorSync = { ...(await cursorApi.syncCursor({ fetchImpl: cursorFetch })), at: Date.now() }; if (cursorSync.ok) runScan(); return cursorSync; };
+  const cursorTimer = setInterval(() => syncCursor(), Math.max(cursorSyncS, 60) * 1000); cursorTimer.unref?.();
+  const readJson = req => new Promise((resolve, reject) => { let size = 0; const chunks = []; req.on("data", chunk => { size += chunk.length; if (size > 8192) { reject(new Error("body too large")); req.destroy(); } else chunks.push(chunk); }); req.on("end", () => { try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {}); } catch { reject(new Error("invalid JSON")); } }); req.on("error", reject); });
+  // A page on another origin must not be able to drive the settings of a local server.
+  const sameOrigin = req => (!req.headers.origin || req.headers.origin === "http://" + req.headers.host) && /^application\/json\b/.test(req.headers["content-type"] || "");
+  const cursorRoute = async (req, res, url) => {
+    if (req.method === "GET" && url.pathname === "/api/cursor/status") return json(res, 200, cursorStatus());
+    if (req.method === "GET" || !sameOrigin(req)) return json(res, 403, { error: "forbidden" });
+    let body; try { body = await readJson(req); } catch (error) { return json(res, 400, { error: error.message }); }
+    if (req.method === "PUT" && url.pathname === "/api/cursor/token") { try { cursorApi.saveToken(body.token); } catch (error) { return json(res, 400, { error: error.message }); } cursorSync = null; syncCursor(); return json(res, 200, cursorStatus()); }
+    if (req.method === "DELETE" && url.pathname === "/api/cursor/token") { cursorApi.removeToken(); cursorSync = null; runScan(); return json(res, 200, cursorStatus()); }
+    if (req.method === "POST" && url.pathname === "/api/cursor/test") { const key = body.token ? body.token : cursorApi.readToken(); if (!key) return json(res, 200, { ok: false, status: 0, message: "no Cursor key set" }); return json(res, 200, await cursorApi.testConnection(key, cursorFetch)); }
+    if (req.method === "POST" && url.pathname === "/api/cursor/sync") { await syncCursor(); return json(res, 200, cursorStatus()); }
+    return send(res, 404, "text/plain; charset=utf-8", "not found");
+  };
   const srv = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://agent-atlas.local"); if (!allowed(url) && !url.pathname.startsWith("/assets/")) return send(res, 403, "text/plain; charset=utf-8", "forbidden");
     try {
       if (url.pathname === "/healthz") return json(res, 200, { ok: true, ...status() });
+      if (url.pathname.startsWith("/api/cursor/")) return await cursorRoute(req, res, url);
       if (url.pathname === "/api/sessions") return json(res, 200, rows);
       const treeMatch = url.pathname.match(/^\/api\/tree\/([0-9a-f-]+)$/), uiMatch = url.pathname.match(/^\/api\/ui\/session\/([0-9a-f-]+)$/);
       if (treeMatch || uiMatch) { const detail = await workerCall("detail", { id: (treeMatch || uiMatch)[1] }); return detail ? json(res, 200, treeMatch ? detail.tree : { revision, ...detail }) : send(res, 404, "text/plain; charset=utf-8", "unknown session"); }
@@ -40,6 +60,6 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
       send(res, 404, "text/plain; charset=utf-8", "not found");
     } catch (error) { send(res, 500, "text/plain; charset=utf-8", "error: " + error.message); }
   });
-  srv.on("close", () => { clearInterval(timer); worker.terminate(); });
-  srv.listen(port, host, () => { console.log(`agent-atlas listening on http://${host}:${port}/ (scan every ${intervalS}s; indexing in background)`); setImmediate(runScan); }); return srv;
+  srv.on("close", () => { clearInterval(timer); clearInterval(cursorTimer); worker.terminate(); });
+  srv.listen(port, host, () => { console.log(`agent-atlas listening on http://${host}:${port}/ (scan every ${intervalS}s; indexing in background)`); setImmediate(runScan); setImmediate(syncCursor); }); return srv;
 }
