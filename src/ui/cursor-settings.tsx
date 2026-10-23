@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-type Status = { set: boolean; last4: string | null; sync: { ok: boolean; fetched?: number; cached?: number; message?: string; at: number } | null };
+type Status = { set: boolean; last4: string | null; sync: { ok: boolean; truncated?: boolean; fetched?: number; cached?: number; message?: string; at: number } | null };
 type TestResult = { ok: boolean; status: number; message: string };
 
 const accessToken = new URLSearchParams(location.search).get("t");
 async function call(method: string, pathname: string, body?: unknown) {
   const url = new URL(pathname, location.origin);
   if (accessToken) url.searchParams.set("t", accessToken);
-  const response = await fetch(url, { method, cache: "no-store", headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const response = await fetch(url, { method, cache: "no-store", headers: { "content-type": "application/json", "x-atlas-csrf": document.querySelector<HTMLMetaElement>("meta[name=atlas-csrf]")?.content || "" }, body: body === undefined ? undefined : JSON.stringify(body) });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error((data as { error?: string }).error || response.statusText);
   return data;
@@ -26,7 +26,7 @@ export function CursorSettings() {
   const data = status.data, last = data?.sync;
   return <details className="cursor-settings"><summary>Cursor {data?.set ? <span className="badge cli">key set · …{data.last4}</span> : <span className="badge done">no key</span>}</summary>
     <div className="cursor-body">
-      <p className="muted">Cursor sessions come from Cursor's Admin API (team usage events), not from local files. Paste an Admin API key created by a team admin at cursor.com/dashboard. It is stored on this machine only (mode 0600), sent only to api.cursor.com, and never shown again.</p>
+      <p className="muted">Cursor sessions come from Cursor's Admin API (team usage events), not from local files. Paste an Admin API key created by a team admin at cursor.com/dashboard. The key gives access to the usage of every team member: all of it is downloaded, kept in a local cache on this machine, and included in any export you make. The key is stored on this machine only (mode 0600), sent only to api.cursor.com, and never shown again.</p>
       <div className="toolbar">
         <input type="password" autoComplete="off" aria-label="Cursor API key" placeholder={data?.set ? "paste a new key to replace …" + data.last4 : "Cursor API key"} value={value} onChange={event => setValue(event.target.value)} />
         <button disabled={busy || !value} onClick={save}>Save</button>
@@ -36,6 +36,6 @@ export function CursorSettings() {
       </div>
       {result && <p role="status" className={result.ok ? "cursor-ok" : "cursor-bad"}>{result.ok ? "OK: " : "Failed: "}{result.message}</p>}
       {error && <p role="alert" className="cursor-bad">{error}</p>}
-      {last && <p className="muted" role="status">{last.ok ? `Last sync ${new Date(last.at).toLocaleTimeString()}: ${last.fetched} events fetched, ${last.cached} cached.` : `Last sync failed: ${last.message}`}</p>}
+      {last && <p className="muted" role="status">{last.ok ? `Last sync ${new Date(last.at).toLocaleTimeString()}: ${last.fetched} events fetched, ${last.cached} cached.${last.truncated ? " INCOMPLETE: the page cap was hit, so older events are missing." : ""}` : `Last sync failed: ${last.message}`}</p>}
     </div></details>;
 }

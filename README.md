@@ -125,7 +125,7 @@ tool call carries no command to anchor on). Neither leaves a trace in the tree.
 
 ## Cursor
 
-Cursor sessions come from Cursor's Admin API (`POST /teams/filtered-usage-events`), not from local files. Open the "Cursor" panel on the sessions page, paste an Admin API key (created by a team admin at cursor.com/dashboard), and use "Test connection". The key is stored in `~/.config/agent-atlas/cursor-token` (override the directory with `AGENT_ATLAS_CONFIG_DIR`, mode 0600), is sent only to `https://api.cursor.com`, and is never shown again beyond its last 4 characters. Events are synced hourly and on demand, and cached next to the key. Sessions are grouped by `conversationId`, else by user with a 30 minute gap; cost is Cursor's own `totalCents`.
+Cursor sessions come from Cursor's Admin API (`POST /teams/filtered-usage-events`), not from local files. Open the "Cursor" panel on the sessions page, paste an Admin API key (created by a team admin at cursor.com/dashboard), and use "Test connection". The key is stored in `~/.config/agent-atlas/cursor-token` (override the directory with `AGENT_ATLAS_CONFIG_DIR`, mode 0600), is sent only to `https://api.cursor.com`, and is never shown again beyond its last 4 characters. Events are synced hourly and on demand, and cached next to the key. Sessions are grouped by `conversationId`, else by user with a 30 minute gap; cost is Cursor's `chargedCents` (falling back to `totalCents`). Only loopback Host names are served on `/api`, and changes need a same-origin request plus a per-launch CSRF header.
 
 ## Pricing
 

@@ -1,5 +1,6 @@
 // HTTP server: React/Vite shell plus an isolated transcript-index worker.
 import http from "node:http";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
@@ -12,7 +13,7 @@ const DIST = path.join(HERE, "..", "dist");
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json; charset=utf-8", ".map": "application/json; charset=utf-8" };
 const CACHE_LIMIT = 64;
 
-export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token = null, cursorFetch = fetch, cursorSyncS = 3600 } = {}) {
+export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token = null, allowedHosts = [], cursorFetch = fetch, cursorSyncS = 3600 } = {}) {
   let rows = [], revision = 0, scannedAt = 0, scanError = null, indexing = true, scanQueued = false, scanActive = false;
   const worker = new Worker(new URL("./index-worker.mjs", import.meta.url));
   let nextRequest = 1; const pending = new Map(), queryCache = new Map();
@@ -25,7 +26,7 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
   const json = (res, code, body) => send(res, code, "application/json; charset=utf-8", JSON.stringify(body));
   const allowed = url => !token || url.searchParams.get("t") === token;
   const status = () => ({ complete: !indexing, scannedAt, error: scanError, revision, discovered: rows.length });
-  const shell = () => { const file = path.join(DIST, "index.html"); return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null; };
+  const shell = () => { const file = path.join(DIST, "index.html"); return fs.existsSync(file) ? fs.readFileSync(file, "utf8").replace("</head>", `<meta name="atlas-csrf" content="${csrf}"></head>`) : null; };
   const staticFile = pathname => { const file = path.resolve(DIST, pathname.replace(/^\/+/, "")); return file.startsWith(DIST + path.sep) && fs.existsSync(file) && fs.statSync(file).isFile() ? file : null; };
   const cacheResult = (key, make) => { if (queryCache.has(key)) return queryCache.get(key); const value = make(); queryCache.set(key, value); if (queryCache.size > CACHE_LIMIT) queryCache.delete(queryCache.keys().next().value); return value; };
   // Cursor: the key lives in the config dir; nothing below ever returns it.
@@ -35,7 +36,12 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
   const cursorTimer = setInterval(() => syncCursor(), Math.max(cursorSyncS, 60) * 1000); cursorTimer.unref?.();
   const readJson = req => new Promise((resolve, reject) => { let size = 0; const chunks = []; req.on("data", chunk => { size += chunk.length; if (size > 8192) { reject(new Error("body too large")); req.destroy(); } else chunks.push(chunk); }); req.on("end", () => { try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {}); } catch { reject(new Error("invalid JSON")); } }); req.on("error", reject); });
   // A page on another origin must not be able to drive the settings of a local server.
-  const sameOrigin = req => (!req.headers.origin || req.headers.origin === "http://" + req.headers.host) && /^application\/json\b/.test(req.headers["content-type"] || "");
+  // Per-launch CSRF token, injected into the served shell and echoed in a custom header.
+  const csrf = crypto.randomBytes(16).toString("hex");
+  // DNS rebinding: a rebound page reaches us with its own name in Host, so only
+  // loopback names on our port (plus operator-configured hosts) are served on /api.
+  const hostAllowed = req => { const port = srv.address()?.port, host = String(req.headers.host || "").toLowerCase(); return [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, ...allowedHosts.map(h => h.toLowerCase())].includes(host); };
+  const sameOrigin = req => req.headers.origin === "http://" + req.headers.host && req.headers["x-atlas-csrf"] === csrf && /^application\/json\b/.test(req.headers["content-type"] || "");
   const cursorRoute = async (req, res, url) => {
     if (req.method === "GET" && url.pathname === "/api/cursor/status") return json(res, 200, cursorStatus());
     if (req.method === "GET" || !sameOrigin(req)) return json(res, 403, { error: "forbidden" });
@@ -49,6 +55,7 @@ export function serve({ host = "127.0.0.1", port = 4747, intervalS = 10, token =
   const srv = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://agent-atlas.local"); if (!allowed(url) && !url.pathname.startsWith("/assets/")) return send(res, 403, "text/plain; charset=utf-8", "forbidden");
     try {
+      if (url.pathname.startsWith("/api/") && !hostAllowed(req)) return send(res, 403, "text/plain; charset=utf-8", "forbidden host");
       if (url.pathname === "/healthz") return json(res, 200, { ok: true, ...status() });
       if (url.pathname.startsWith("/api/cursor/")) return await cursorRoute(req, res, url);
       if (url.pathname === "/api/sessions") return json(res, 200, rows);

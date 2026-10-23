@@ -11,6 +11,7 @@
 //   cursor-token    the key, mode 0600
 //   cursor-events   cached usage events (JSON), mode 0600; read synchronously by
 //                   providers/cursor.mjs, so discovery never touches the network
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -24,13 +25,28 @@ export const configDir = () =>
 const tokenPath = () => path.join(configDir(), "cursor-token");
 export const eventsPath = () => path.join(configDir(), "cursor-events");
 
+// The directory must be ours: refuse one owned by someone else, tighten ours to 0700.
+function privateDir(dir) {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const st = fs.lstatSync(dir);
+  if (!st.isDirectory() || (process.getuid && st.uid !== process.getuid()))
+    throw new Error("config directory " + dir + " is not a directory owned by this user");
+  if ((st.mode & 0o777) !== 0o700) fs.chmodSync(dir, 0o700);
+}
+// Random temp name created with O_EXCL (never opens an existing file or follows a
+// symlink), then renamed over the target.
 function writePrivate(file, text) {
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const tmp = file + "." + process.pid + ".tmp";
-  fs.writeFileSync(tmp, text, { mode: 0o600 });
-  fs.chmodSync(tmp, 0o600);
+  privateDir(path.dirname(file));
+  const tmp = path.join(path.dirname(file), "." + path.basename(file) + "." + crypto.randomBytes(8).toString("hex") + ".tmp");
+  const fd = fs.openSync(tmp, "wx", 0o600);
+  try { fs.writeFileSync(fd, text); } finally { fs.closeSync(fd); }
   fs.renameSync(tmp, file);
 }
+
+// Bumped whenever the credential changes; a sync that started under an older
+// generation drops its result instead of writing it.
+let generation = 0;
+const fingerprint = token => crypto.createHash("sha256").update(token).digest("hex");
 
 export function validateToken(raw) {
   const token = typeof raw === "string" ? raw.trim() : "";
@@ -42,8 +58,15 @@ export function validateToken(raw) {
 export function readToken() {
   try { return fs.readFileSync(tokenPath(), "utf8").trim() || null; } catch { return null; }
 }
-export function saveToken(raw) { writePrivate(tokenPath(), validateToken(raw) + "\n"); }
+export function saveToken(raw) {
+  const token = validateToken(raw), previous = readToken();
+  writePrivate(tokenPath(), token + "\n");
+  generation++;
+  // Another key may be another team: its events must never merge with the old cache.
+  if (previous !== token) fs.rmSync(eventsPath(), { force: true });
+}
 export function removeToken() {
+  generation++;
   fs.rmSync(tokenPath(), { force: true });
   fs.rmSync(eventsPath(), { force: true });
 }
@@ -89,35 +112,41 @@ export async function testConnection(token, fetchImpl = fetch) {
   } catch (error) { return { ok: false, status: error.status ?? 0, message: error.message }; }
 }
 
-export async function fetchUsageEvents(token, { fetchImpl = fetch, now = Date.now(), days = WINDOW_DAYS } = {}) {
+export async function fetchUsageEvents(token, { fetchImpl = fetch, now = Date.now(), days = WINDOW_DAYS, maxPages = MAX_PAGES } = {}) {
   const events = [];
-  for (let page = 1; page <= MAX_PAGES; page++) {
+  let truncated = false;
+  for (let page = 1; page <= maxPages; page++) {
     const body = await post(fetchImpl, token, "/teams/filtered-usage-events",
       { startDate: now - days * 864e5, endDate: now, page, pageSize: 1000 });
     if (!body || !Array.isArray(body.usageEvents)) throw new Error("unexpected response shape from Cursor");
     events.push(...body.usageEvents);
     if (!body.pagination?.hasNextPage) break;
+    if (page === maxPages) truncated = true;
   }
-  return events;
+  return { events, truncated };
 }
 
 const eventKey = e => [e.timestamp, e.userEmail, e.model, e.conversationId || "", e.tokenUsage?.inputTokens ?? "", e.tokenUsage?.outputTokens ?? ""].join("|");
 
-export function readCachedEvents() {
-  try { const data = JSON.parse(fs.readFileSync(eventsPath(), "utf8")); return Array.isArray(data.events) ? data.events : []; }
-  catch { return []; }
+export function readCache() {
+  try { const data = JSON.parse(fs.readFileSync(eventsPath(), "utf8")); return { events: Array.isArray(data.events) ? data.events : [], truncated: !!data.truncated, fingerprint: data.fingerprint || null }; }
+  catch { return { events: [], truncated: false, fingerprint: null }; }
 }
+export const readCachedEvents = () => readCache().events;
 
 /** Fetch the last 30 days and merge into the cache, so history accumulates beyond the window. */
-export async function syncCursor({ fetchImpl = fetch, now = Date.now() } = {}) {
+export async function syncCursor({ fetchImpl = fetch, now = Date.now(), maxPages = MAX_PAGES } = {}) {
   const token = readToken();
   if (!token) return { ok: false, message: "no Cursor key set" };
+  const started = generation, print = fingerprint(token);
   try {
-    const fresh = await fetchUsageEvents(token, { fetchImpl, now });
-    const merged = new Map(readCachedEvents().map(e => [eventKey(e), e]));
+    const { events: fresh, truncated } = await fetchUsageEvents(token, { fetchImpl, now, maxPages });
+    if (started !== generation) return { ok: false, message: "the key changed during the sync; result discarded" };
+    const cache = readCache();
+    const merged = new Map((cache.fingerprint === print ? cache.events : []).map(e => [eventKey(e), e]));
     for (const e of fresh) merged.set(eventKey(e), e);
     const events = [...merged.values()].sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
-    writePrivate(eventsPath(), JSON.stringify({ syncedAt: now, events }));
-    return { ok: true, fetched: fresh.length, cached: events.length, syncedAt: now };
+    writePrivate(eventsPath(), JSON.stringify({ syncedAt: now, fingerprint: print, truncated, events }));
+    return { ok: true, fetched: fresh.length, cached: events.length, syncedAt: now, truncated };
   } catch (error) { return { ok: false, message: error.message }; }
 }

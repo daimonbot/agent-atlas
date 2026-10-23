@@ -7,18 +7,19 @@
 // when Cursor sends one, otherwise by user with a gap of more than 30 minutes
 // starting a new session. Each event is one request: one turn holding one call.
 //
-// Cost is Cursor's own `tokenUsage.totalCents` (provider-reported, confidence
-// "reported"). Per-token-class cost parts are not available from Cursor, so
-// they stay zero. Request-based events (isTokenBasedCall=false) carry no tokens
-// or dollar amount and make the session "partial".
+// Cost is Cursor's own `chargedCents` (the docs' reconciliation field), falling
+// back to `tokenUsage.totalCents`; node.costBasis records which. Confidence is
+// "reported". Per-token-class cost parts are not available from Cursor, so they
+// stay zero. An event with neither field makes the session "partial".
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { eventsPath, readCachedEvents } from "../cursor-api.mjs";
+import { eventsPath, readCache } from "../cursor-api.mjs";
 import { ZERO_PARTS } from "../prices.mjs";
 import { finish } from "./node.mjs";
 
 export const name = "cursor";
 export const GAP_MS = 30 * 60_000;
+const truncated = () => { sessions(); return !!(memo && memo.truncated); };
 const ZERO_TOKENS = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 });
 
 const sessionId = key => {
@@ -49,7 +50,7 @@ let memo = null;
 function sessions() {
   let stat; try { stat = fs.statSync(eventsPath()); } catch { return []; }
   const stamp = stat.mtimeMs + ":" + stat.size;
-  if (!memo || memo.stamp !== stamp) memo = { stamp, groups: groupEvents(readCachedEvents()), size: stat.size };
+  if (!memo || memo.stamp !== stamp) { const cache = readCache(); memo = { stamp, groups: groupEvents(cache.events), truncated: cache.truncated }; }
   return memo.groups;
 }
 
@@ -65,12 +66,16 @@ export function buildTree(ref) {
   if (!g) throw new Error(`no cursor session '${ref.id}'`);
   const tokens = ZERO_TOKENS(), models = new Map(), unknown = new Set();
   let cost = 0, partial = false;
+  const bases = new Set();
   const turns = [], calls = [];
   g.events.forEach((e, i) => {
     const u = e.tokenUsage;
     const t = { input: u?.inputTokens || 0, output: u?.outputTokens || 0, cacheRead: u?.cacheReadTokens || 0, cacheWrite5m: u?.cacheWriteTokens || 0, cacheWrite1h: 0 };
-    const usd = u ? (u.totalCents || 0) / 100 : 0;
-    if (!u) { partial = true; unknown.add(e.model || "unknown"); }
+    // chargedCents is what Cursor says reconciles across billing types; fall back
+    // to the token list cost. An event with neither has no known cost.
+    const field = Number.isFinite(e.chargedCents) ? "chargedCents" : Number.isFinite(u?.totalCents) ? "totalCents" : null;
+    const usd = field ? (field === "chargedCents" ? e.chargedCents : u.totalCents) / 100 : 0;
+    if (field) bases.add(field); else { partial = true; unknown.add(e.model || "unknown"); }
     for (const k in t) tokens[k] += t[k];
     cost += usd;
     models.set(e.model, (models.get(e.model) || 0) + t.input + t.output + t.cacheRead + t.cacheWrite5m);
@@ -89,8 +94,11 @@ export function buildTree(ref) {
     decisions: 0, interactions: [], tokens, costOwn: cost, costParts: ZERO_PARTS(),
     costConfidence: partial ? "partial" : "reported", unknownModels: [...unknown],
     firstPrompt: null, summary: null, skills: [], branch: null, cwd: null, version: null, repo: null,
-    identity: { customTitle: convo ? `Cursor conversation ${convo.slice(0, 8)}` : `Cursor · ${first.userEmail || "unknown user"}` },
+    identity: { customTitle: (convo ? `Cursor conversation ${convo.slice(0, 8)}` : `Cursor · ${first.userEmail || "unknown user"}`) + (truncated() ? " (incomplete: sync hit the page cap)" : "") },
     turns, turnByToolUse: null, calls,
   };
-  return finish("main", "(session)", ref.id, "root", st, [], { provider: name }, null);
+  const node = finish("main", "(session)", ref.id, "root", st, [], { provider: name }, null);
+  node.costBasis = bases.size > 1 ? "mixed" : [...bases][0] || null;
+  node.truncated = truncated();
+  return node;
 }
