@@ -216,7 +216,8 @@ function readRollout(file) {
   const costParts = ZERO_PARTS();
   const turns = new Map();                     // turn_id -> {usd(raw), apiCalls, tokens, costParts}
   const calls = [];
-  let priced = 0, unpriced = 0;
+  let priced = 0, unpriced = 0, partial = false;
+  const pricing = new Map();
 
   for (const r of recs) {
     const u = r.u;
@@ -249,6 +250,8 @@ function readRollout(file) {
     } else {
       pr = priceCodex(model, r.ts, uu);
       if (pr.unknownModel != null) unknown.add(pr.unknownModel);
+      if (pr.provenance) pricing.set(pr.provenance.model, pr.provenance);
+      if (pr.confidence === "partial") partial = true;
       byModel.set(model, (byModel.get(model) || 0) + (u.total_tokens || 0));
     }
     if (pr.confidence === "n/a") unpriced++; else priced++;
@@ -297,8 +300,8 @@ function readRollout(file) {
   return {
     tokens, apiCalls: ids.size,
     models: models.sort((a, b) => (byModel.get(b) || 0) - (byModel.get(a) || 0)),
-    efforts, costOwn, costParts, unknownModels: [...unknown],
-    costConfidence: priced === 0 ? "n/a" : unpriced ? "partial" : "computed",
+    efforts, costOwn, costParts, unknownModels: [...unknown], pricing: [...pricing.values()],
+    costConfidence: priced === 0 ? "n/a" : unpriced || partial ? "partial" : "computed",
     turnCost, calls,
   };
 }
@@ -525,6 +528,7 @@ function synth(t, roll, createdMs, updatedMs, hist) {
     costParts: roll ? { ...roll.costParts } : ZERO_PARTS(),
     costConfidence: roll ? roll.costConfidence : "n/a",
     unknownModels: roll ? [...roll.unknownModels] : [],
+    pricing: roll ? roll.pricing : [],
     // threads.title runs to 700+ characters on this host; first_user_message is
     // the real opening prompt. Codex has no summary, and threads.preview is only
     // a truncation of the same prompt, so claiming one would be a lie -- describe()

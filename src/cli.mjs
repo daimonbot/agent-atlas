@@ -6,6 +6,8 @@ import { describe, workspace } from "./providers/claude.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { treeTerminal, fmtDur } from "./render.mjs";
+import { unpricedModels } from "./session-index.mjs";
+import { refresh as refreshPrices } from "./pricing/index.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const exportHTML = tree => {
@@ -33,6 +35,10 @@ function resolveSession(ref) {
 }
 const die = m => { console.error("agent-atlas: " + m); process.exit(1); };
 
+// One-shot commands give a due price refresh a short, bounded chance; an offline
+// or slow source falls back to the cache and bundled snapshot (never an error).
+if (cmd === "list" || cmd === "tree" || cmd === "export") await refreshPrices({ timeoutMs: 2000 });
+
 if (cmd === "list") {
   const days = +opt("days", 7);
   const cutoff = Date.now() - days * 864e5;
@@ -49,15 +55,16 @@ if (cmd === "list") {
         name: describe(t).title || t.identity?.agentName || "",
         desc: describe(t).subtitle.slice(0, 60),
         start: t.start, durationS: t.durationS, live: Date.now() - s.mtimeMs < LIVE_MS,
-        agents: countAgents(t), cost: t.cost.total };
+        agents: countAgents(t), cost: t.cost.total,
+        unpricedModels: [...unpricedModels(t)] };
     })
-    .filter(r => r.cost >= minCost);
+    .filter(r => r.cost >= minCost || r.unpricedModels.length);
   if (sortK === "cost") rows.sort((a, b) => b.cost - a.cost);
   if (args.includes("--json")) { console.log(JSON.stringify(rows, null, 1)); process.exit(0); }
   for (const r of rows)
     console.log([r.live ? "LIVE" : "    ", r.id.slice(0, 8),
       (r.start || "").slice(0, 16).replace("T", " "), fmtDur(r.durationS).padStart(6),
-      String(r.agents).padStart(3) + " ag", ("$" + r.cost.toFixed(2)).padStart(9),
+      String(r.agents).padStart(3) + " ag", (r.unpricedModels.length ? (r.cost > 0 ? "≥ $" + r.cost.toFixed(2) : "n/a") : "$" + r.cost.toFixed(2)).padStart(9),
       r.name || r.project, r.desc ? "· " + r.desc : ""].join("  "));
   const total = rows.reduce((a, r) => a + r.cost, 0);
   console.log(`\n${rows.length} sessions · total $${total.toFixed(2)} (last ${all ? "∞" : days + "d"})`);

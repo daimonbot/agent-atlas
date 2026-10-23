@@ -96,7 +96,7 @@ export function finish(agent, description, agentId, via, st, children, extra, tu
     ...(extra.missingTranscript ? { missingTranscript: true } : {}),
     ...(extra.reported ? { reported: extra.reported } : {}),
     cost: { own: +own.toFixed(4), children: +childUsd.toFixed(4),
-            total, confidence: conf },
+            total, confidence: conf, provenance: st ? (st.pricing || []) : [] },
     turns,
     calls: callList,
     children,

@@ -15,6 +15,7 @@
     "dev": "vite",
     "test": "node --test",
     "typecheck": "tsc --noEmit",
+    "prices:snapshot": "node scripts/pricing-snapshot.mjs",
     "bench": "node bench/sessions.mjs",
     "test:browser": "node --test test/browser.test.mjs",
     "pretest:browser": "npm run build"

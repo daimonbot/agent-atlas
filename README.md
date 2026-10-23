@@ -1,7 +1,7 @@
 # agent-atlas
 
 Provider-agnostic cost & agent-tree explorer for AI coding sessions.
-**React 19 + Vite UI**, backed by a Node 22+ server. No runtime outbound network, no telemetry,
+**React 19 + Vite UI**, backed by a Node 22+ server. The only outbound request is the price-catalogue refresh (see Pricing; `AGENT_ATLAS_PRICING=offline` disables it). No telemetry,
 and binds `127.0.0.1` by default.
 
 Reads the transcripts your agent harness already writes, builds a nested tree of
@@ -83,7 +83,7 @@ Implemented:
   Cost is per API call, priced with that call's *own* turn model — a thread that
   switched models mid-session is not priced at one of them. No dollar figure
   exists anywhere in Codex's store, so every row is list-price × tokens flagged
-  `computed`, never `verified`.
+  `computed`.
   A thread that is the child of a `thread_spawn_edges` row nests inside its
   parent's tree with `via: "spawn"` (not `"cli"`, which means "spotted in a
   Claude transcript", and not `"harness"`). **A nested spawn child is not
@@ -112,8 +112,7 @@ which is why it is the only mechanism here: when a Bash
 `tool_use` whose command mentions `codex` returns a `tool_result` carrying
 codex's own `session id: <uuid>` line, agent-atlas emits one `CLI:codex` leaf
 per distinct uuid per tree, under the agent whose transcript it was read from.
-It is a stub — `cost` is always `0` / `n/a`, since no Codex price table
-exists — and the banner fields it carries (`tokensUsed`, `sandbox`,
+It is a stub — `cost` is always `0` / `n/a` — and the banner fields it carries (`tokensUsed`, `sandbox`,
 `workdir`, `approval`, `codexVersion`, under `reported`) are harvested
 only from a complete printed banner; a grep or log re-read yields the session id
 and nothing else. **Those `reported.*` key names are provisional**, and may be
@@ -125,18 +124,38 @@ tool call carries no command to anchor on). Neither leaves a trace in the tree.
 
 ## Pricing
 
-`src/prices.mjs`. Anthropic list prices with cache multipliers (0.1× read,
-1.25× 5m write, 2× 1h write) **validated to 8 decimals against the harness's
-own `total_cost_usd`** for `haiku-4-5` and `opus-5`; other models use the same
-multipliers and are flagged `computed`. Sonnet 5's introductory window
-(≤ 2026-08-31) is handled.
+Prices are not tables in the source. `src/pricing/` resolves a model's token
+prices at runtime, so a model that ships tomorrow is priced as soon as a
+catalogue lists it.
 
-The same file carries a `CODEX` table of OpenAI list prices for the Codex
-provider, sourced and dated in its own header comment. All three rows are
-`computed` — Codex exposes no `total_cost_usd` to validate against. `gpt-5.6-sol`'s
-rate is **promotional through ~2026-11-21** and no post-window rate is published,
-so no time-window branch is built for it: the far side would be a guess. A Codex
-model with no row prices `n/a`, never `$0.00`.
+- **Sources**, in order: your local overrides, then LiteLLM's
+  `model_prices_and_context_window.json`, then OpenRouter's `/api/v1/models`
+  (only for models LiteLLM does not list yet). Input, output, cache read and
+  cache write (5m and 1h) are priced separately where the source has them.
+- **Cache policy**: each source is re-read at most every 24 h (1 h back-off
+  after a failure), in the background for `serve` and for at most 2 s per
+  source in `list`/`tree`/`export`. The result is cached at
+  `$XDG_CACHE_HOME/agent-atlas/prices.json` (`AGENT_ATLAS_PRICES_CACHE`). A
+  failed, slow or implausible (< 50 models) refresh changes nothing; the last
+  good catalogue, else the snapshot bundled with the release
+  (`npm run prices:snapshot`), keeps answering however old. Models an upstream
+  delists keep their last price. `AGENT_ATLAS_PRICING=offline` never touches the network.
+- **Overrides**: `$XDG_CONFIG_HOME/agent-atlas/prices.json`
+  (`AGENT_ATLAS_PRICES_OVERRIDE`), `{"model": {"in": 5, "out": 25, "cr": 0.5, "cw5": 6.25, "cw1h": 10}}`
+  in $/MTok; unlisted classes are unpublished. Wins over every source, re-read live.
+- **Matching**: provider prefixes, date suffixes, `@version`, `-v1:0`, `[1m]` and
+  dots/dashes are normalised (`anthropic/claude-opus-5.5` = `claude-opus-5-5-20260921`).
+  No fuzzy or nearest-version fallback: a guess would be a silent wrong number.
+- **Provenance**: every node carries `cost.provenance` (model, source, matched key,
+  origin `cache`/`bundled`/`override`, fetched-at, URL); the session view shows it in the
+  "prices" tile.
+- **Unknown is not zero**: a model no source knows is `n/a` (or a lower bound
+  `≥ $x` next to priced calls), is listed per session, and is never hidden by the
+  `min $` filter. A token class the source does not publish (e.g. OpenAI cache
+  writes) makes the result `partial`, not free.
+- **Not modelled**: long-context tiers (> 200k/272k), batch/priority tiers, and
+  promotional windows. A session is priced at the current catalogue price, so a
+  later price change re-prices history.
 
 ## Caveats
 
