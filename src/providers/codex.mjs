@@ -12,7 +12,7 @@
 //                                  the append-only log, and the ONLY place a
 //                                  per-response token breakdown exists
 //
-// root defaults to ~/.codex and is overridable with AGENT_ATLAS_CODEX_ROOT.
+// root: AGENT_ATLAS_CODEX_ROOT > CODEX_HOME > ~/.codex.
 // Unlike AGENT_ATLAS_CLAUDE_ROOT, which points at a sessions directory, this one
 // points at a home directory, because Codex's three inputs are siblings rather
 // than one tree. Every input is derived from it, including the rollout path --
@@ -26,7 +26,7 @@ import { finish } from "./node.mjs";
 
 export const name = "codex";
 export const root = () =>
-  process.env.AGENT_ATLAS_CODEX_ROOT || path.join(os.homedir(), ".codex");
+  process.env.AGENT_ATLAS_CODEX_ROOT || process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 const statePath = () => path.join(root(), "state_5.sqlite");
 const historyPath = () => path.join(root(), "thread_history_1.sqlite");
 

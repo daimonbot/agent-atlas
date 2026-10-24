@@ -14,6 +14,9 @@ COPY package.json ./
 COPY --from=build /app/dist ./dist
 COPY src ./src
 USER node
+# The documented shared-home mount; explicit Atlas/provider roots still win.
+ENV CODEX_HOME=/data/home/.codex \
+    XDG_CACHE_HOME=/tmp/agent-atlas-cache
 EXPOSE 4747
 ENTRYPOINT ["node", "/app/src/cli.mjs"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "4747"]
