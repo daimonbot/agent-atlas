@@ -362,7 +362,7 @@ export class SessionFileParser {
       const r = priceClaude(v.model, v.ts, v.u);
       out.push({ id, ts: v.ts, cost: r.usd, model: v.model, pid: turnOf(v.uuid),
         tokens: { in: v.u.in, out: v.u.out, cr: v.u.cr, cw: v.u.c5 + v.u.c1h },
-        costParts: r.parts, acts: v.acts || [] });
+        costParts: r.parts, confidence: r.confidence, acts: v.acts || [] });
     }
     out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
     let prev = null;
@@ -389,7 +389,7 @@ export class SessionFileParser {
     const t = { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
     const byModel = new Map();      // ranks the model list: busiest first
     let usd = 0; const cp = ZERO_PARTS();
-    let confidence = "verified"; const unknown = new Set();
+    let priced = 0, unpriced = 0, partial = false; const unknown = new Set(), pricing = new Map();
     for (const [, v] of this.seen) {
       t.input += v.u.in; t.output += v.u.out; t.cacheRead += v.u.cr;
       t.cacheWrite5m += v.u.c5; t.cacheWrite1h += v.u.c1h;
@@ -398,7 +398,9 @@ export class SessionFileParser {
       usd += r.usd;
       for (const k in cp) cp[k] += r.parts[k];
       if (r.unknownModel) unknown.add(r.unknownModel);
-      if (r.confidence === "computed" && confidence === "verified") confidence = "computed";
+      if (r.provenance) pricing.set(r.provenance.model, r.provenance);
+      if (r.confidence === "n/a") unpriced++; else priced++;
+      if (r.confidence === "partial") { partial = true; unknown.add(`${v.model} (no ${r.missingClasses.join("/")} price)`); }
     }
     return {
       model: [...this.models].sort((a, b) => (byModel.get(b) || 0) - (byModel.get(a) || 0)),
@@ -412,8 +414,8 @@ export class SessionFileParser {
       skills: [...this.skills], branch: [...this.branches][0] || null,
       cwd: this.cwd, version: this.version, repo: this.repo,
       tokens: t, costOwn: usd, costParts: cp,
-      costConfidence: unknown.size ? "partial" : confidence,
-      unknownModels: [...unknown], identity: this.identity,
+      costConfidence: priced === 0 && unpriced ? "n/a" : unknown.size || partial ? "partial" : "computed",
+      unknownModels: [...unknown], pricing: [...pricing.values()], identity: this.identity,
       turns, turnByToolUse, calls: this.#calls(turnOf),
       codex: [...this.codexSessions.values()],
     };

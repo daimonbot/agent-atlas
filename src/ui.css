@@ -425,3 +425,4 @@ body:has(.sessions-page){max-width:none}
 @media(max-width:899px){.sessions-table .col-live,.sessions-table .col-start,.sessions-table .col-duration,.sessions-table .col-agents{display:none}.table-meta{flex-wrap:wrap}.table-meta nav{margin-left:0}.table-meta-note{width:100%;order:3}.sessions-table-region{overflow-x:auto}.sessions-table .tt{min-width:700px}}
 
 .sessions-table .model-label{display:inline-block;margin-right:.45em;color:var(--acc);font-size:10.5px;font-weight:650;letter-spacing:.01em}
+.unpriced{color:#a85b00;cursor:help;border-bottom:1px dotted #a85b00}

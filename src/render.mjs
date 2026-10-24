@@ -8,6 +8,22 @@ const usd = n => n > 0 && n < 0.01 ? "$" + n.toFixed(4) : "$" + n.toFixed(2);
 // Sub-figures (per-token-class, $/msg, aggregates over many sessions) keep calling usd().
 export const money = v => (v ? usd(v) : "·");
 const num = n => (n ?? 0).toLocaleString("en");
+
+// Models anywhere in the tree that no price source knows. Their cost is unknown,
+// not zero: a session containing one is a lower bound at best.
+export function unpricedModels(node, out = new Set()) {
+  for (const m of node.unknownModels || []) out.add(m);
+  if (node.cost?.ownConfidence === "n/a" && !(node.unknownModels || []).length) {
+    for (const model of node.model?.length ? node.model : ["(usage unavailable)"]) out.add(model + " (usage unavailable)");
+  }
+  for (const child of node.children || []) unpricedModels(child, out);
+  return out;
+}
+// Money for a node's subtree total that never prints an unknown as a price.
+export function costLabel(node, value = node.cost.total) {
+  const unknown = unpricedModels(node).size > 0;
+  return !unknown ? money(value) : value > 0 ? "≥ " + usd(value) : "n/a";
+}
 export const fmtDur = s => s == null ? "" :
   s >= 3600 ? (s / 3600).toFixed(1) + "h" : s >= 60 ? Math.round(s / 60) + "m" : s + "s";
 const kTok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "k" : String(n);
@@ -1088,7 +1104,7 @@ ${backHref ? `<p style="margin:0 0 .9em"><a href="${esc(backHref)}">← sessions
    : `<div class=prompt>${esc(t.firstPrompt)}</div>`) : ""}
 </div>
 <div class=dash>
- <div class="tile lead"><span class=lbl>Total cost</span><b>${money(t.cost.total)}</b>
+ <div class="tile lead"><span class=lbl>Total cost</span><b>${esc(costLabel(t))}</b>
   <span class=sub>main ${money(t.cost.own)} · agents ${money(t.cost.children)}</span></div>
  <div class=tile><span class=lbl>Agents</span><b>${nAgents}</b>
   <span class=sub>${money(t.cost.children)}</span></div>
@@ -1664,7 +1680,8 @@ export function treeTerminal(tree, width = process.stdout.columns || 120) {
   const out = [];
   function line(n, prefix, childPrefix) {
     const badge = n.via === "cli" ? `[CLI${n.provider !== "claude" ? ":" + n.provider : ""}] ` : "";
-    const cost = money(n.cost.total) +
+    const cost = costLabel(n) +
+      (unpricedModels(n).size ? ` [no price: ${[...unpricedModels(n)].join(", ")}]` : "") +
       (n.children.length ? ` (own ${money(n.cost.own)} + sub ${money(n.cost.children)})` : "") +
       (n.cost.confidence === "computed" ? " ±" : n.cost.confidence === "reported" ? " (reported)" : "");
     const meta = `${shortModel(n.model)} ${n.effort.join(",")} ${fmtDur(n.durationS)} ${n.apiCalls}c out ${kTok(n.tokens.output)} cR ${kTok(n.tokens.cacheRead)} cW ${kTok(n.tokens.cacheWrite5m + n.tokens.cacheWrite1h)}` +

@@ -26,7 +26,7 @@ async function complete(endpoint) { let payload; const deadline = Date.now() + 5
 
 test("React UI filters, virtualizes, and navigates through flow, trace and costs", async t => {
   let browser; try { browser = await chromium.launch(); } catch (error) { if (/error while loading shared libraries/.test(error.message)) { t.skip("Chromium runtime unavailable: " + error.message.split("\n")[0]); return; } throw error; }
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-atlas-browser-")); const previous = process.env.AGENT_ATLAS_CLAUDE_ROOT; fixture(root); process.env.AGENT_ATLAS_CLAUDE_ROOT = root;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-atlas-browser-")); const saved = { ...process.env }; fixture(root); Object.assign(process.env, { AGENT_ATLAS_CLAUDE_ROOT: root, AGENT_ATLAS_CODEX_ROOT: path.join(root, "empty-codex"), AGENT_ATLAS_PRICING: "offline", AGENT_ATLAS_PRICES_CACHE: path.join(root, "prices.json"), AGENT_ATLAS_PRICES_OVERRIDE: path.join(root, "overrides.json") });
   const server = serve({ port: 0, intervalS: 60 }); await once(server, "listening"); const origin = "http://127.0.0.1:" + server.address().port; const indexed = await complete(origin + "/api/ui/sessions?limit=100&from=1970-01-01&usemin=0");
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } }); const failures = []; page.on("pageerror", error => failures.push(error.message));
   try {
@@ -35,5 +35,41 @@ test("React UI filters, virtualizes, and navigates through flow, trace and costs
     await page.getByRole("button", { name: "Trace" }).click(); await page.locator(".tl-axis .tl-track").dragTo(page.locator(".tl-axis .tl-track"), { sourcePosition: { x: 40, y: 5 }, targetPosition: { x: 260, y: 5 } }); await assert.doesNotReject(() => page.getByRole("button", { name: "reset zoom" }).waitFor());
     await page.getByRole("button", { name: "Costs" }).click(); await page.getByRole("button", { name: "Flow" }).click(); await page.locator("section:not([hidden]) .fw-turns").first().click(); await page.getByRole("dialog", { name: "Calls" }).waitFor(); await page.getByRole("button", { name: "×" }).click();
     assert.ok(await page.locator(".fw-stage").count() >= 1); assert.equal(failures.length, 0, failures.join("\\n")); assert.equal(indexed.rows.length, 1);
-  } finally { await browser.close(); server.close(); await once(server, "close"); fs.rmSync(root, { recursive: true, force: true }); if (previous === undefined) delete process.env.AGENT_ATLAS_CLAUDE_ROOT; else process.env.AGENT_ATLAS_CLAUDE_ROOT = previous; }
+  } finally { await browser.close(); server.close(); await once(server, "close"); fs.rmSync(root, { recursive: true, force: true }); for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key]; Object.assign(process.env, saved); }
+});
+
+test("unknown prices stay unavailable in the dashboard, session, calls, and export", async t => {
+  let browser; try { browser = await chromium.launch(); } catch (error) { if (/error while loading shared libraries/.test(error.message)) { t.skip("Chromium runtime unavailable"); return; } throw error; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "atlas-unpriced-browser-")), saved = { ...process.env };
+  fixture(root);
+  const project = path.join(root, "-react-fixture");
+  for (const file of [path.join(project, id + ".jsonl"), path.join(project, id, "subagents", "agent-child.jsonl")]) {
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replaceAll("claude-sonnet-4-5", "claude-unknown-99").replaceAll("claude-haiku-4-5", "claude-unknown-99"));
+  }
+  Object.assign(process.env, { AGENT_ATLAS_CLAUDE_ROOT: root, AGENT_ATLAS_CODEX_ROOT: path.join(root, "empty-codex"), AGENT_ATLAS_PRICING: "offline", AGENT_ATLAS_PRICES_CACHE: path.join(root, "prices.json"), AGENT_ATLAS_PRICES_OVERRIDE: path.join(root, "overrides.json") });
+  const server = serve({ port: 0, intervalS: 60 }); await once(server, "listening");
+  const origin = "http://127.0.0.1:" + server.address().port;
+  try {
+    const indexed = await complete(origin + "/api/ui/sessions?from=1970-01-01");
+    assert.equal(indexed.summary.unpriced, 1);
+    const page = await browser.newPage();
+    await page.goto(origin + "/?r=0", { waitUntil: "networkidle" });
+    assert.equal(await page.locator(".dash .tile").first().locator("b").innerText(), "n/a");
+    assert.equal(await page.locator(".col-cost.money").innerText(), "n/a");
+    assert.equal(await page.locator(".bd-val").first().innerText(), "n/a");
+    await page.locator('a[href="/session/' + id + '"]').click();
+    await page.waitForURL("**/session/" + id + "**");
+    assert.equal(await page.locator(".dash .tile").first().locator("b").innerText(), "n/a");
+    await page.locator("section:not([hidden]) .fw-turns").first().click();
+    await page.getByRole("dialog", { name: "Calls" }).waitFor();
+    assert.equal(await page.getByRole("dialog").locator("td.money").first().innerText(), "n/a");
+    const { execFileSync } = await import("node:child_process");
+    const html = execFileSync(process.execPath, ["src/cli.mjs", "export", path.join(project, id + ".jsonl")], { encoding: "utf8", env: process.env });
+    const exported = await browser.newPage();
+    await exported.setContent(html, { waitUntil: "load" });
+    assert.equal(await exported.locator(".dash .tile").first().locator("b").innerText(), "n/a");
+  } finally {
+    await browser.close(); server.close(); await once(server, "close"); fs.rmSync(root, { recursive: true, force: true });
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key]; Object.assign(process.env, saved);
+  }
 });

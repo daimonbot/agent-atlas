@@ -216,7 +216,8 @@ function readRollout(file) {
   const costParts = ZERO_PARTS();
   const turns = new Map();                     // turn_id -> {usd(raw), apiCalls, tokens, costParts}
   const calls = [];
-  let priced = 0, unpriced = 0;
+  let priced = 0, unpriced = 0, partial = false;
+  const pricing = new Map();
 
   for (const r of recs) {
     const u = r.u;
@@ -249,6 +250,8 @@ function readRollout(file) {
     } else {
       pr = priceCodex(model, r.ts, uu);
       if (pr.unknownModel != null) unknown.add(pr.unknownModel);
+      if (pr.provenance) pricing.set(pr.provenance.model, pr.provenance);
+      if (pr.confidence === "partial") { partial = true; unknown.add(`${model} (no ${pr.missingClasses.join("/")} price)`); }
       byModel.set(model, (byModel.get(model) || 0) + (u.total_tokens || 0));
     }
     if (pr.confidence === "n/a") unpriced++; else priced++;
@@ -264,7 +267,7 @@ function readRollout(file) {
 
     calls.push({ id: r.id ?? null, ts: r.ts ?? null, cost: pr.usd, model,
                  tokens: { in: uu.in, out: uu.out, cr: uu.cr, cw: uu.c5 },
-                 costParts: pr.parts, turnId: r.turnId ?? null });
+                 costParts: pr.parts, confidence: pr.confidence, turnId: r.turnId ?? null });
   }
   calls.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 
@@ -297,8 +300,8 @@ function readRollout(file) {
   return {
     tokens, apiCalls: ids.size,
     models: models.sort((a, b) => (byModel.get(b) || 0) - (byModel.get(a) || 0)),
-    efforts, costOwn, costParts, unknownModels: [...unknown],
-    costConfidence: priced === 0 ? "n/a" : unpriced ? "partial" : "computed",
+    efforts, costOwn, costParts, unknownModels: [...unknown], pricing: [...pricing.values()],
+    costConfidence: priced === 0 ? "n/a" : unpriced || partial ? "partial" : "computed",
     turnCost, calls,
   };
 }
@@ -491,7 +494,7 @@ function synth(t, roll, createdMs, updatedMs, hist) {
     const opens = k.turnId != null && hasUser && humanTurns.has(k.turnId) && !openers.has(k.turnId);
     if (opens) openers.add(k.turnId);
     return { id: k.id, ts: k.ts, cost: k.cost, model: k.model,
-             tokens: { ...k.tokens }, costParts: { ...k.costParts },
+             tokens: { ...k.tokens }, costParts: { ...k.costParts }, confidence: k.confidence,
              // History only proves activity at turn granularity. Retain that
              // evidence on calls without pretending it identifies one response.
              acts: Object.entries(tools.get(k.turnId) || {}).map(([name, count]) => ({ name, count, id: null, skill: null, task: null })),
@@ -525,6 +528,7 @@ function synth(t, roll, createdMs, updatedMs, hist) {
     costParts: roll ? { ...roll.costParts } : ZERO_PARTS(),
     costConfidence: roll ? roll.costConfidence : "n/a",
     unknownModels: roll ? [...roll.unknownModels] : [],
+    pricing: roll ? roll.pricing : [],
     // threads.title runs to 700+ characters on this host; first_user_message is
     // the real opening prompt. Codex has no summary, and threads.preview is only
     // a truncation of the same prompt, so claiming one would be a lie -- describe()

@@ -9,13 +9,13 @@ const rows = [
 ];
 
 test("queries aggregate the complete filtered corpus but return one page", () => {
-  const result = querySessions(rows, { usemin: "0", sort: "cost", dir: "desc", limit: "1", offset: "1" });
+  const result = querySessions(rows, { from: "2026-09-01", usemin: "0", sort: "cost", dir: "desc", limit: "1", offset: "1" });
   assert.equal(result.matchedCount, 3); assert.equal(result.rows.length, 1); assert.equal(result.rows[0].id, "a");
   assert.equal(result.summary.cost, 12.1); assert.equal(result.summary.agents, 8); assert.equal(result.breakdown[0].key, "worker");
   assert.equal("path" in result.rows[0], false); assert.equal("byAgent" in result.rows[0], false);
 });
 test("filters and deterministic sorting use the API query, not the DOM", () => {
-  const result = querySessions(rows, { q: "alpha", project: "one", live: "1", usemin: "0", sort: "start", dir: "asc" });
+  const result = querySessions(rows, { from: "2026-09-01", q: "alpha", project: "one", live: "1", usemin: "0", sort: "start", dir: "asc" });
   assert.deepEqual(result.rows.map(row => row.id), ["a", "c"]);
 });
 test("invalid query values are rejected", () => { assert.throws(() => normalizeSessionQuery({ minCost: "NaN" })); assert.throws(() => normalizeSessionQuery({ from: "not-a-date" })); });
@@ -23,6 +23,14 @@ test("invalid query values are rejected", () => { assert.throws(() => normalizeS
 
 test("agent breakdown retains main remainder and uses seconds for duration", () => {
   const fixture = [{ id: "remainder", project: "one", model: "m1", title: "remainder", start: "2026-09-20T00:00:00Z", live: false, cost: 10, agents: 1, apiCalls: 4, humanMsgs: 2, durationS: 90, agentMs: 60_000, tokens: { in: 100, out: 80, cr: 20, cw: 10 }, tokenCost: { in: 7, out: 2, cr: .5, cw: .5 }, byAgent: { worker: { c: 1, o: 3, ms: 60_000, t: [30, 20, 5, 2], d: [2, 1, .1, .1] } } }];
-  const cost = querySessions(fixture, { usemin: "0", by: "agent", metric: "cost" }).breakdown; assert.deepEqual(cost.map(row => [row.key, row.value]), [["main", 7], ["worker", 3]]); assert.equal(cost.find(row => row.key === "main").tokenCost.in, 5);
-  const duration = querySessions(fixture, { usemin: "0", by: "agent", metric: "duration" }).breakdown; assert.deepEqual(duration.map(row => [row.key, row.value]), [["main", 90], ["worker", 60]]);
+  const cost = querySessions(fixture, { from: "2026-09-01", usemin: "0", by: "agent", metric: "cost" }).breakdown; assert.deepEqual(cost.map(row => [row.key, row.value]), [["main", 7], ["worker", 3]]); assert.equal(cost.find(row => row.key === "main").tokenCost.in, 5);
+  const duration = querySessions(fixture, { from: "2026-09-01", usemin: "0", by: "agent", metric: "duration" }).breakdown; assert.deepEqual(duration.map(row => [row.key, row.value]), [["main", 90], ["worker", 60]]);
+});
+
+test("partial zero-cost rows survive the cost filter and mark summary and breakdown incomplete", () => {
+  const row = { ...rows[0], id: "partial", cost: 0, costConfidence: "partial", byAgent: {}, tokenCost: {} };
+  const result = querySessions([row], { from: "2026-09-01", by: "project" });
+  assert.equal(result.matchedCount, 1);
+  assert.equal(result.summary.unpriced, 1);
+  assert.equal(result.breakdown[0].unpriced, true);
 });
