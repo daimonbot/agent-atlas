@@ -274,3 +274,11 @@ test("an older refresh finishing last cannot roll back a newer cached price", as
   resetPricing();
   assert.equal(lookup("race-model").p.in, 3);
 });
+
+test("a session with no recorded usage remains unavailable even with no unknown model name", async () => {
+  const { finish } = await import("../src/providers/node.mjs");
+  const missing = finish("main", "", "empty", "root", { costOwn: 0, costConfidence: "n/a", model: ["gpt-5.6-sol"], unknownModels: [], calls: [] }, [], { provider: "codex" });
+  assert.equal(missing.cost.ownConfidence, "n/a");
+  assert.equal(costLabel(missing), "n/a");
+  assert.match([...unpricedModels(missing)][0], /usage unavailable/);
+});

@@ -57,11 +57,13 @@ export function finish(agent, description, agentId, via, st, children, extra, tu
   }
   const childUsd = children.reduce((a, c) => a + c.cost.total, 0);
   const own = st ? st.costOwn : 0;
-  let conf = st ? st.costConfidence : "n/a";
+  const ownConfidence = st ? st.costConfidence : "n/a";
+  let conf = ownConfidence;
   // A displayed subtree is incomplete if any descendant is incomplete, even
   // when this node's own token records were fully priced.
   if (children.some(c => c.cost.confidence === "partial" || c.cost.confidence === "n/a"))
     conf = conf === "n/a" ? "n/a" : "partial";
+  if (conf === "n/a" && children.some(child => child.cost.confidence !== "n/a")) conf = "partial";
   // Human effort belongs to the session a person typed into: a subagent's
   // "user message" is its parent's errand, so only a root node keeps the
   // parser's count. This is the single place root-ness is enforced, and the
@@ -96,7 +98,7 @@ export function finish(agent, description, agentId, via, st, children, extra, tu
     ...(extra.missingTranscript ? { missingTranscript: true } : {}),
     ...(extra.reported ? { reported: extra.reported } : {}),
     cost: { own: +own.toFixed(4), children: +childUsd.toFixed(4),
-            total, confidence: conf, provenance: st ? (st.pricing || []) : [] },
+            total, confidence: conf, ownConfidence, provenance: st ? (st.pricing || []) : [] },
     turns,
     calls: callList,
     children,

@@ -13,6 +13,9 @@ const num = n => (n ?? 0).toLocaleString("en");
 // not zero: a session containing one is a lower bound at best.
 export function unpricedModels(node, out = new Set()) {
   for (const m of node.unknownModels || []) out.add(m);
+  if (node.cost?.ownConfidence === "n/a" && !(node.unknownModels || []).length) {
+    for (const model of node.model?.length ? node.model : ["(usage unavailable)"]) out.add(model + " (usage unavailable)");
+  }
   for (const child of node.children || []) unpricedModels(child, out);
   return out;
 }
