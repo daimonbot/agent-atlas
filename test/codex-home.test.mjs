@@ -24,7 +24,7 @@ function fixture(t, deferCleanup = false) {
   const cleanup = () => { fs.chmodSync(home, 0o755); db.close(); fs.rmSync(dir, { recursive: true, force: true }); };
   if (!deferCleanup) t.after(cleanup);
   const env = { ...process.env, HOME: empty, CODEX_HOME: home, AGENT_ATLAS_CODEX_ROOT: "", AGENT_ATLAS_CLAUDE_ROOT: path.join(dir, "empty-claude"), AGENT_ATLAS_PRICING: "offline", AGENT_ATLAS_PRICES_CACHE: path.join(dir, "prices.json"), AGENT_ATLAS_PRICES_OVERRIDE: path.join(dir, "overrides.json"), NODE_NO_WARNINGS: "1" };
-  return { id, env, empty, dir, cleanup };
+  return { id, env, empty, dir, file, cleanup };
 }
 
 test("CODEX_HOME discovers and prices Codex sessions outside the container user's home", t => {
@@ -65,4 +65,13 @@ test("HTTP index and model filter expose CODEX_HOME sessions from a read-only WA
   assert.ok(result.facets.models.includes("gpt-6.1-sol"));
   const detail = await (await fetch(origin + "/api/ui/session/" + id)).json();
   assert.equal(detail.tree.provider, "codex"); assert.ok(detail.tree.cost.total > 0);
+});
+
+test("large Codex tool transcripts are priced within a 64 MB JavaScript heap", t => {
+  const { id, env, file } = fixture(t);
+  const output = JSON.stringify({ type: "response_item", payload: { type: "function_call_output", output: "x".repeat(8192) } }) + "\n";
+  const fd = fs.openSync(file, "a");
+  try { for (let i = 0; i < 14000; i++) fs.writeSync(fd, output); } finally { fs.closeSync(fd); }
+  const tree = JSON.parse(execFileSync(process.execPath, ["--max-old-space-size=64", "src/cli.mjs", "tree", id, "--json"], { env: { ...env, NODE_OPTIONS: "" }, encoding: "utf8" }));
+  assert.equal(tree.apiCalls, 1); assert.equal(tree.cost.confidence, "computed"); assert.ok(tree.cost.total > 0);
 });
