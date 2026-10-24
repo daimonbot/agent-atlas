@@ -75,8 +75,8 @@ Implemented:
   `description`, `parentAgentId`, `spawnDepth`); cost per node computed from
   per-message usage with the 5m/1h cache-tier split.
 - **codex** (Codex CLI): Codex's own stores under `~/.codex` (override the root
-  with `AGENT_ATLAS_CODEX_ROOT` — note it names the *home*, not a sessions
-  directory, because the three inputs are siblings): `state_5.sqlite`
+  with `AGENT_ATLAS_CODEX_ROOT`, then `CODEX_HOME` — these name the *home*,
+  not a sessions directory, because the three inputs are siblings): `state_5.sqlite`
   (`threads`, `thread_spawn_edges`), `thread_history_1.sqlite` (`thread_turns`,
   `thread_items`) and the rollout JSONL under `sessions/`, which is the only
   place a per-response token breakdown exists. Read-only, via `node:sqlite`.
@@ -176,12 +176,19 @@ docker run --rm -p 4747:4747 \
   ghcr.io/daimonbot/agent-atlas:latest
 ```
 
-The image runs as user `node` (uid 1000), reads the home that contains the
-sessions, and writes nothing of its own.
+The image runs as user `node` (uid 1000). Its default `CODEX_HOME` is
+`/data/home/.codex`, matching the shared-home mount above; set `CODEX_HOME` or
+`AGENT_ATLAS_CODEX_ROOT` for a different location (the Atlas override wins).
+Pricing caches default to `/tmp/agent-atlas-cache`, so a read-only root
+filesystem needs only a writable `/tmp` mount for that cache. Harness databases
+are always opened read-only; SQLite may need its own writable sidecar files as
+described below.
 
-**The mount is deliberately not `:ro`.** Codex's stores are WAL-mode SQLite, and
-a WAL database in a non-writable directory cannot be opened *even read-only* —
-SQLite needs to create the `-shm` sidecar. Every open agent-atlas makes is
-`readOnly: true`, so the databases themselves are never written; what the mount
-has to allow is SQLite's own sidecar. Drop `AGENT_ATLAS_CODEX_ROOT` and put
-`:ro` back if you only ever read Claude transcripts.
+**The mount is deliberately not `:ro`.** Codex stores use SQLite WAL mode.
+A read-only mount works when the required readable `-wal` and `-shm` files are
+already maintained by the Codex writer; otherwise SQLite may need to create
+the `-shm` sidecar and opening can fail. Every Atlas connection uses
+`readOnly: true`, so Atlas never writes the databases themselves. Allow the
+minimum required sidecar-file writes when configuring a new mount. For a
+Claude-only installation, mount `:ro` and point `AGENT_ATLAS_CODEX_ROOT` at an
+empty directory to disable Codex discovery.

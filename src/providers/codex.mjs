@@ -12,7 +12,7 @@
 //                                  the append-only log, and the ONLY place a
 //                                  per-response token breakdown exists
 //
-// root defaults to ~/.codex and is overridable with AGENT_ATLAS_CODEX_ROOT.
+// root: AGENT_ATLAS_CODEX_ROOT > CODEX_HOME > ~/.codex.
 // Unlike AGENT_ATLAS_CLAUDE_ROOT, which points at a sessions directory, this one
 // points at a home directory, because Codex's three inputs are siblings rather
 // than one tree. Every input is derived from it, including the rollout path --
@@ -21,12 +21,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { StringDecoder } from "node:string_decoder";
 import { ZERO_PARTS, priceCodex } from "../prices.mjs";
 import { finish } from "./node.mjs";
 
 export const name = "codex";
 export const root = () =>
-  process.env.AGENT_ATLAS_CODEX_ROOT || path.join(os.homedir(), ".codex");
+  process.env.AGENT_ATLAS_CODEX_ROOT || process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 const statePath = () => path.join(root(), "state_5.sqlite");
 const historyPath = () => path.join(root(), "thread_history_1.sqlite");
 
@@ -155,40 +156,52 @@ function resolveRollout(stored) {
 }
 
 // ---------------------------------------------------------------------------
-// The rollout reader. Returns the reader's PRODUCT -- plain data, no node
-// objects and no objects any consumer mutates -- or null when there is nothing
-// readable. This is what gets memoised (see rollFor): every buildTree call
-// composes a fresh turns[]/calls[] out of it, because finish() writes onto both
-// (turn.subagents, call.opensHuman) and a shared array would accumulate.
-function readRollout(file) {
-  let text;
-  try { text = fs.readFileSync(file, "utf8"); } catch (e) {
-    warn(`cannot read rollout ${file}: ${e.message}`);
-    return null;
-  }
+// Iterate JSONL without retaining the complete transcript or its split lines.
+// Tool output dominates large rollouts; only contexts and usage survive parsing.
+function* rolloutLines(file) {
+  const fd = fs.openSync(file, "r"), buffer = Buffer.allocUnsafe(64 * 1024), decoder = new StringDecoder("utf8");
+  let pending = "";
+  try {
+    let bytes;
+    while ((bytes = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
+      pending += decoder.write(buffer.subarray(0, bytes));
+      let start = 0, end;
+      while ((end = pending.indexOf("\n", start)) !== -1) { yield pending.slice(start, end); start = end + 1; }
+      pending = pending.slice(start);
+    }
+    pending += decoder.end();
+    if (pending) yield pending;
+  } finally { fs.closeSync(fd); }
+}
 
+// The rollout reader returns plain data, never mutable tree nodes. rollFor()
+// memoises this product; buildTree() composes fresh turns and calls from it.
+function readRollout(file) {
   // Pass 1: every turn_context, and every usage record, in file order. The two
   // passes are not optional: a token_usage_record can precede its own
   // turn_context in the same file (measured), so a streaming model -> record
   // join mis-attributes or throws.
   const ctx = new Map();                       // turn_id -> {model, effort}
   let recs = [];
-  for (const line of text.split("\n")) {
-    if (!line) continue;
-    let x;
-    // A garbage line, or the partial trailing line of a file being appended to
-    // while it is read, is skipped -- never thrown on. That is the property the
-    // whole ingestion model rests on.
-    try { x = JSON.parse(line); } catch { continue; }
-    const p = x && x.payload;
-    if (!p) continue;
-    if (x.type === "turn_context") {
-      if (p.turn_id != null && !ctx.has(p.turn_id))
-        ctx.set(p.turn_id, { model: p.model ?? null, effort: p.effort ?? null });
-    } else if (x.type === "token_usage_record" && p.usage) {
-      recs.push({ ts: x.timestamp, id: p.response_id, turnId: p.turn_id ?? null,
-                  rootTurnId: p.root_turn_id ?? null, u: p.usage, tot: p.thread_token_usage });
+  try {
+    for (const line of rolloutLines(file)) {
+      if (!line) continue;
+      let x;
+      // Garbage or partial trailing lines are skipped while a live file grows.
+      try { x = JSON.parse(line); } catch { continue; }
+      const p = x && x.payload;
+      if (!p) continue;
+      if (x.type === "turn_context") {
+        if (p.turn_id != null && !ctx.has(p.turn_id))
+          ctx.set(p.turn_id, { model: p.model ?? null, effort: p.effort ?? null });
+      } else if (x.type === "token_usage_record" && p.usage) {
+        recs.push({ ts: x.timestamp, id: p.response_id, turnId: p.turn_id ?? null,
+                    rootTurnId: p.root_turn_id ?? null, u: p.usage, tot: p.thread_token_usage });
+      }
     }
+  } catch (e) {
+    warn(`cannot read rollout ${file}: ${e.message}`);
+    return null;
   }
 
   // Streaming rollouts can replay one response as it is updated. Keep only its
