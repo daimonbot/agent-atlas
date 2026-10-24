@@ -155,7 +155,9 @@ catalogue lists it.
   writes) makes the result `partial`, not free.
 - **Not modelled**: long-context tiers (> 200k/272k), batch/priority tiers, and
   promotional windows. A session is priced at the current catalogue price, so a
-  later price change re-prices history.
+  later price change re-prices history. These are estimated API list-price costs,
+  not subscription charges or invoice totals. Reproducible historical pricing is
+  tracked separately in [#31](https://github.com/daimonbot/agent-atlas/issues/31).
 
 ## Caveats
 

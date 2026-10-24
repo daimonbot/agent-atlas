@@ -248,3 +248,29 @@ test("end to end: unknown model and unpublished token class are flagged, kept by
   assert.deepEqual(out.rows.map(r => r.id).sort(), ["r0", "r1"]);     // cheap but fully priced r2 is hidden, the two unknowns are not
   assert.equal(out.summary.unpriced, 2);
 });
+
+test("overrides invalidate cached session prices before any lookup", t => {
+  sandbox(t);
+  const before = pricingRevision();
+  fs.writeFileSync(process.env.AGENT_ATLAS_PRICES_OVERRIDE, JSON.stringify({ "claude-opus-5-5": { in: 1, out: 2 } }));
+  assert.notEqual(pricingRevision(), before);
+  assert.equal(lookup("claude-opus-5-5").p.in, 1);
+  fs.writeFileSync(process.env.AGENT_ATLAS_PRICES_OVERRIDE, JSON.stringify({ "claude-opus-5-5": { in: -1, out: 2 } }));
+  assert.equal(lookup("claude-opus-5-5").provenance.source, "litellm");
+});
+
+test("an older refresh finishing last cannot roll back a newer cached price", async t => {
+  sandbox(t);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const older = refresh({ force: true, fetchJson: async url => {
+    await gate;
+    return { json: url === LITE ? litellm({ "race-model": entry(1, 2) }) : router(), version: "older" };
+  } });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  await refresh({ force: true, fetchJson: fetcher({ [LITE]: litellm({ "race-model": entry(3, 4) }), [OR]: router() }) });
+  release(); await older;
+  assert.equal(lookup("race-model").p.in, 3);
+  resetPricing();
+  assert.equal(lookup("race-model").p.in, 3);
+});

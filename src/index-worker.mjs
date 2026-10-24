@@ -32,7 +32,7 @@ function scan() {
     summaries.set(key, { ref: session, path: session.path, stamp, row }); return row;
   });
   for (const key of parserCache.keys()) if (!activeFiles.has(key)) parserCache.delete(key);
-  const signature = pricingRevision() + "#" + rows.map(row => row.id + ":" + (summaries.get(row.id)?.stamp || "") + ":" + Number(row.live)).join("|");
+  const signature = pricingRevision() + "#" + sessions.map((session, index) => keyOf(session) + ":" + summaries.get(keyOf(session)).stamp + ":" + Number(rows[index].live)).join("|");
   const changed = signature !== lastSignature; if (changed) { lastSignature = signature; lastRows = rows; }
   return { rows: changed ? rows : lastRows, scannedAt: now, changed };
 }

@@ -64,12 +64,14 @@ function metric(row, key) {
   return number(row[key]);
 }
 
+const hasPriceGap = row => row.unpricedModels?.length > 0 || ["n/a", "partial"].includes(row.costConfidence);
+
 function aggregate(rows) {
   const token = { in: 0, out: 0, cr: 0, cw: 0 }, tokenCost = { in: 0, out: 0, cr: 0, cw: 0 };
   let cost = 0, unpriced = 0, agents = 0, calls = 0, agentMs = 0, humanMsgs = 0;
   const costs = [];
   for (const row of rows) {
-    cost += number(row.cost); if (row.unpricedModels?.length || row.costConfidence === "n/a") unpriced++; agents += number(row.agents); calls += number(row.apiCalls);
+    cost += number(row.cost); if (hasPriceGap(row)) unpriced++; agents += number(row.agents); calls += number(row.apiCalls);
     agentMs += number(row.agentMs); humanMsgs += number(row.humanMsgs); costs.push(number(row.cost));
     for (const key of TOKEN_KEYS) { token[key] += number(row.tokens?.[key]); tokenCost[key] += number(row.tokenCost?.[key]); }
   }
@@ -81,10 +83,10 @@ function aggregate(rows) {
 
 function breakdown(rows, by, metricKey) {
   const groups = new Map();
-  const add = (key, count, value, tokenCost) => { const prior = groups.get(key) || { key, count: 0, value: 0, tokenCost: { in: 0, out: 0, cr: 0, cw: 0 } }; prior.count += count; prior.value += value; for (const k of TOKEN_KEYS) prior.tokenCost[k] += number(tokenCost?.[k]); groups.set(key, prior); };
+  const add = (key, count, value, tokenCost, unpriced = false) => { const prior = groups.get(key) || { key, count: 0, value: 0, unpriced: false, tokenCost: { in: 0, out: 0, cr: 0, cw: 0 } }; prior.unpriced ||= unpriced; prior.count += count; prior.value += value; for (const k of TOKEN_KEYS) prior.tokenCost[k] += number(tokenCost?.[k]); groups.set(key, prior); };
   for (const row of rows) {
     if (by === "model" || by === "project") {
-      const key = by === "project" ? (row.workspace?.label || row.project || "—") : (row.model || "—"); add(key, 1, metric(row, metricKey), row.tokenCost);
+      const key = by === "project" ? (row.workspace?.label || row.project || "—") : (row.model || "—"); add(key, 1, metric(row, metricKey), row.tokenCost, hasPriceGap(row));
       continue;
     }
     const child = { cost: 0, agents: 0, agentMs: 0, token: { in: 0, out: 0, cr: 0, cw: 0 }, tokenCost: { in: 0, out: 0, cr: 0, cw: 0 } };
@@ -92,18 +94,18 @@ function breakdown(rows, by, metricKey) {
       child.cost += number(agent.o); child.agents += number(agent.c); child.agentMs += number(agent.ms);
       for (let i = 0; i < TOKEN_KEYS.length; i++) { const tokenKey = TOKEN_KEYS[i]; child.token[tokenKey] += number(agent.t?.[i]); child.tokenCost[tokenKey] += number(agent.d?.[i]); }
       const value = metricKey === "cost" ? number(agent.o) : metricKey === "agents" || metricKey === "sessions" ? number(agent.c) : metricKey === "agentMs" ? number(agent.ms) : metricKey === "duration" ? number(agent.ms) / 1000 : metricKey === "calls" || metricKey === "humanMsgs" ? 0 : number(agent.t?.[TOKEN_KEYS.indexOf(metricKey)]);
-      add(key, number(agent.c), value, Object.fromEntries(TOKEN_KEYS.map((tokenKey, i) => [tokenKey, number(agent.d?.[i])])));
+      add(key, number(agent.c), value, Object.fromEntries(TOKEN_KEYS.map((tokenKey, i) => [tokenKey, number(agent.d?.[i])])), hasPriceGap(row));
     }
     const remainderTokens = Object.fromEntries(TOKEN_KEYS.map(key => [key, Math.max(0, number(row.tokens?.[key]) - child.token[key])]));
     const remainderCost = Object.fromEntries(TOKEN_KEYS.map(key => [key, Math.max(0, number(row.tokenCost?.[key]) - child.tokenCost[key])]));
     const mainValue = metricKey === "cost" ? Math.max(0, number(row.cost) - child.cost) : metricKey === "agents" ? Math.max(0, number(row.agents) - child.agents) : metricKey === "sessions" ? 1 : metricKey === "calls" ? number(row.apiCalls) : metricKey === "humanMsgs" ? number(row.humanMsgs) : metricKey === "duration" ? number(row.durationS) : metricKey === "agentMs" ? Math.max(0, number(row.agentMs) - child.agentMs) : remainderTokens[metricKey];
-    if (mainValue || TOKEN_KEYS.some(key => remainderTokens[key] || remainderCost[key])) add("main", 1, mainValue, remainderCost);
+    if (mainValue || hasPriceGap(row) || TOKEN_KEYS.some(key => remainderTokens[key] || remainderCost[key])) add("main", 1, mainValue, remainderCost, hasPriceGap(row));
   }
   return [...groups.values()].sort((a, b) => b.value - a.value || a.key.localeCompare(b.key));
 }
 export function querySessions(rows, input) {
   const q = normalizeSessionQuery(input);
-  const matched = rows.filter(row => (number(row.cost) >= q.minCost || row.unpricedModels?.length > 0 || row.costConfidence === "n/a") && (!q.project || (row.workspace?.label || row.project) === q.project) &&
+  const matched = rows.filter(row => (number(row.cost) >= q.minCost || hasPriceGap(row)) && (!q.project || (row.workspace?.label || row.project) === q.project) &&
     (!q.model || row.model === q.model) && (!q.live || row.live) && (!row.start || (Date.parse(row.start) >= q.from && Date.parse(row.start) <= q.to)) &&
     (!q.q || haystack(row).includes(q.q)));
   matched.sort((a, b) => { const av = metric(a, q.sort), bv = metric(b, q.sort); const compared = typeof av === "string" ? av.localeCompare(bv) : av - bv; return q.dir * (compared || a.id.localeCompare(b.id)); });

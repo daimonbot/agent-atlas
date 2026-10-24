@@ -52,8 +52,8 @@ function loadOverrides() {
   const data = stamp ? readJson(file) : null;
   for (const [model, v] of Object.entries(data || {})) {
     const canon = exactId(model);
-    if (!canon || !v || typeof v.in !== "number" || typeof v.out !== "number") continue;
-    const n = k => (typeof v[k] === "number" && v[k] >= 0 ? v[k] : null);
+    if (!canon || !v || !Number.isFinite(v.in) || v.in < 0 || !Number.isFinite(v.out) || v.out < 0) continue;
+    const n = k => (Number.isFinite(v[k]) && v[k] >= 0 ? v[k] : null);
     overrides.set(canon, { key: model, p: { in: v.in, out: v.out, cr: n("cr"), cw5: n("cw5"), cw1h: n("cw1h") } });
   }
   return true;
@@ -68,7 +68,7 @@ function init() {
 }
 
 /** Changes whenever any answer could change; the index uses it to re-price sessions. */
-export function pricingRevision() { init(); return revision + ":" + overridesStamp; }
+export function pricingRevision() { init(); loadOverrides(); return revision + ":" + overridesStamp; }
 
 /** Test hook: forget everything read from disk. */
 export function resetPricing() { state = null; overrides = new Map(); overridesStamp = ""; revision = 0; }
@@ -165,15 +165,17 @@ async function persist(results) {
     for (const [name, r] of Object.entries(results)) {
       const rec = disk[name] || {};
       if (r.ok) {
-        const models = { ...(rec.models || {}), ...fromMap(r.ok.models) };
-        // Never move a newer concurrent fetch backwards.
+        // An older request may finish last: newer disk prices win conflicts.
         const newer = rec.fetchedAt && rec.fetchedAt > r.ok.fetchedAt;
-        out[name] = { ...(newer ? rec : { fetchedAt: r.ok.fetchedAt, version: r.ok.version }), url: r.ok.url, models, lastAttempt: r.ok.fetchedAt, error: null };
+        const models = newer ? { ...fromMap(r.ok.models), ...(rec.models || {}) } : { ...(rec.models || {}), ...fromMap(r.ok.models) };
+        out[name] = { ...(newer ? rec : { fetchedAt: r.ok.fetchedAt, version: r.ok.version }), url: r.ok.url, models, lastAttempt: newer ? rec.lastAttempt : r.ok.fetchedAt, error: null };
       } else out[name] = { ...rec, lastAttempt: r.fail.attempt, error: r.fail.message };
     }
     const tmp = `${file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify({ version: 1, sources: out }));
     fs.renameSync(tmp, file);
+    // Keep this process consistent with a newer concurrent writer as well.
+    for (const name of Object.keys(results)) Object.assign(state[name], loadSource(name, null, out[name]));
   });
 }
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-const money = value => value == null ? "—" : value > 0 && value < .01 ? "\$" + value.toFixed(4) : "\$" + value.toFixed(2);
+import { money } from "./money";
 const num = value => Number(value || 0).toLocaleString("en");
 const duration = value => value == null ? "" : value >= 3600 ? (value / 3600).toFixed(1) + "h" : value >= 60 ? Math.round(value / 60) + "m" : value + "s";
 const tokenCount = value => value >= 1e6 ? (value / 1e6).toFixed(1) + "M" : value >= 1e3 ? (value / 1e3).toFixed(0) + "k" : num(value);

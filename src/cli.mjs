@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // agent-atlas CLI. Commands: list, tree, export, serve.
 import fs from "node:fs";
-import * as claude from "./providers/claude.mjs";
-import { describe, workspace } from "./providers/claude.mjs";
+import * as providers from "./providers/index.mjs";
+import { describe, workspace } from "./providers/index.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { treeTerminal, fmtDur } from "./render.mjs";
@@ -27,9 +27,13 @@ const opt = (name, dflt) => {
 const LIVE_MS = 120_000;
 
 function resolveSession(ref) {
-  if (fs.existsSync(ref)) return ref;
-  const hits = claude.discover().filter(s => s.id.startsWith(ref));
-  if (hits.length === 1) return hits[0].path;
+  if (fs.existsSync(ref)) {
+    const session = providers.refFromPath(path.resolve(ref));
+    if (session) return session;
+    die(`no session matches '${ref}'`);
+  }
+  const hits = providers.discover().filter(s => s.id.startsWith(ref));
+  if (hits.length === 1) return hits[0];
   if (hits.length === 0) die(`no session matches '${ref}'`);
   die(`ambiguous: ${hits.map(h => h.id.slice(0, 12)).join(", ")}`);
 }
@@ -49,11 +53,11 @@ if (cmd === "list") {
   const cache = new Map();
   const minCost = +opt("min-cost", 0);
   const sortK = String(opt("sort", "time"));
-  const rows = claude.discover()
+  const rows = providers.discover()
     .filter(s => all || s.mtimeMs >= cutoff)
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .map(s => {
-      const t = claude.buildTree(s.path, cache);
+      const t = providers.buildTree(s, cache);
       return { id: s.id, project: s.project.replace(/^-/, "").slice(0, 38),
         name: describe(t).title || t.identity?.agentName || "",
         desc: describe(t).subtitle.slice(0, 60),
@@ -70,10 +74,12 @@ if (cmd === "list") {
       String(r.agents).padStart(3) + " ag", (r.unpricedModels.length ? (r.cost > 0 ? "≥ $" + r.cost.toFixed(2) : "n/a") : "$" + r.cost.toFixed(2)).padStart(9),
       r.name || r.project, r.desc ? "· " + r.desc : ""].join("  "));
   const total = rows.reduce((a, r) => a + r.cost, 0);
-  console.log(`\n${rows.length} sessions · total $${total.toFixed(2)} (last ${all ? "∞" : days + "d"})`);
+  const gap = rows.some(row => row.unpricedModels.length);
+  const label = gap ? (total > 0 ? "≥ $" + total.toFixed(2) : "n/a") : "$" + total.toFixed(2);
+  console.log(`\n${rows.length} sessions · total ${label} (last ${all ? "∞" : days + "d"})`);
 } else if (cmd === "tree" || cmd === "export") {
   const p = resolveSession(args[1] || die("usage: agent-atlas tree <session-id|path>"));
-  const t = claude.buildTree(p);
+  const t = providers.buildTree(p);
   if (cmd === "export" || args.includes("--html")) {
     const html = exportHTML(t);
     const out = opt("out", null);
@@ -93,5 +99,7 @@ if (cmd === "list") {
   agent-atlas export <session-id|path> [--out file.html]
   agent-atlas serve [--host 127.0.0.1] [--port 4747] [--interval 10] [--token X]`);
 }
+
+await pricesDone;
 
 function countAgents(t) { return t.children.reduce((a, c) => a + 1 + countAgents(c), 0); }
