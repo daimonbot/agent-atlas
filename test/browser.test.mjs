@@ -73,3 +73,37 @@ test("unknown prices stay unavailable in the dashboard, session, calls, and expo
     for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key]; Object.assign(process.env, saved);
   }
 });
+
+test("model explanations preserve raw filter identifiers and distinguish unrecorded models", async t => {
+  let browser; try { browser = await chromium.launch(); } catch (error) { if (/error while loading shared libraries/.test(error.message)) { t.skip("Chromium runtime unavailable"); return; } throw error; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "atlas-model-labels-")), saved = { ...process.env };
+  fixture(root);
+  const project = path.join(root, "-react-fixture"), emptyId = "22222222-2222-4222-8222-222222222222";
+  for (const file of [path.join(project, id + ".jsonl"), path.join(project, id, "subagents", "agent-child.jsonl")]) {
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replaceAll("claude-sonnet-4-5", "codex-auto-review").replaceAll("claude-haiku-4-5", "codex-auto-review"));
+  }
+  fs.writeFileSync(path.join(project, emptyId + ".jsonl"), line({ type: "user", uuid: "empty-user", timestamp: "2026-01-02T10:00:00Z", message: { content: "No model recorded in this session" } }));
+  Object.assign(process.env, { AGENT_ATLAS_CLAUDE_ROOT: root, AGENT_ATLAS_CODEX_ROOT: path.join(root, "empty-codex"), AGENT_ATLAS_PRICING: "offline", AGENT_ATLAS_PRICES_CACHE: path.join(root, "prices.json"), AGENT_ATLAS_PRICES_OVERRIDE: path.join(root, "overrides.json") });
+  const server = serve({ port: 0, intervalS: 60 }); await once(server, "listening"); const origin = "http://127.0.0.1:" + server.address().port;
+  try {
+    await complete(origin + "/api/ui/sessions?from=1970-01-01&usemin=0");
+    const page = await browser.newPage();
+    await page.goto(origin + "/?r=0&usemin=0", { waitUntil: "networkidle" });
+    assert.deepEqual((await page.locator(".model-label").allTextContents()).sort(), ["Codex Auto Review (internal)", "model not recorded"].sort());
+    assert.match(await page.locator(".model-label").filter({ hasText: "Codex Auto Review" }).getAttribute("title"), /permission checks.*Guardian/);
+    await page.getByRole("combobox", { name: "Model", exact: true }).selectOption("codex-auto-review");
+    await page.waitForFunction(() => document.querySelectorAll(".model-label").length === 1);
+    assert.equal(new URL(page.url()).searchParams.get("model"), "codex-auto-review");
+    assert.equal(await page.locator(".model-label").innerText(), "Codex Auto Review (internal)");
+    await page.locator('a[href="/session/' + id + '"]').click(); await page.waitForURL("**/session/" + id + "**");
+    assert.match(await page.locator(".fw-model").first().innerText(), /Codex Auto Review \(internal\)/);
+    await page.getByRole("button", { name: "Costs", exact: true }).click();
+    await page.getByRole("combobox", { name: "Agent model", exact: true }).selectOption("codex-auto-review");
+    assert.equal(await page.getByRole("combobox", { name: "Agent model", exact: true }).inputValue(), "codex-auto-review");
+    await page.goto(origin + "/session/" + emptyId, { waitUntil: "networkidle" });
+    assert.equal(await page.locator(".fw-model").first().innerText(), "model not recorded");
+  } finally {
+    await browser.close(); server.close(); await once(server, "close"); fs.rmSync(root, { recursive: true, force: true });
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key]; Object.assign(process.env, saved);
+  }
+});

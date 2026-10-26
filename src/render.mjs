@@ -1,3 +1,5 @@
+import { modelLabel } from "./models.mjs";
+
 // Renderers: web index (sortable/filterable), session tree page, standalone
 // HTML export, terminal tree. Zero dependencies; client JS is vanilla.
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -14,7 +16,8 @@ const num = n => (n ?? 0).toLocaleString("en");
 export function unpricedModels(node, out = new Set()) {
   for (const m of node.unknownModels || []) out.add(m);
   if (node.cost?.ownConfidence === "n/a" && !(node.unknownModels || []).length) {
-    for (const model of node.model?.length ? node.model : ["(usage unavailable)"]) out.add(model + " (usage unavailable)");
+    if (node.model?.length) for (const model of node.model) out.add(model + " (usage unavailable)");
+    else out.add("(usage unavailable)");
   }
   for (const child of node.children || []) unpricedModels(child, out);
   return out;
@@ -27,7 +30,7 @@ export function costLabel(node, value = node.cost.total) {
 export const fmtDur = s => s == null ? "" :
   s >= 3600 ? (s / 3600).toFixed(1) + "h" : s >= 60 ? Math.round(s / 60) + "m" : s + "s";
 const kTok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "k" : String(n);
-const shortModel = ms => ms.map(m => m.replace("claude-", "").replace("-20251001", "")).join("+") || "—";
+const shortModel = ms => ms.map(m => modelLabel(m).replace("claude-", "").replace("-20251001", "")).join("+") || modelLabel(null);
 
 // The human-messages disclosure. One constant, three surfaces: the session tile,
 // the index column header and the index breakdown pill. It deliberately contains

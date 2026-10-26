@@ -182,6 +182,7 @@ function readRollout(file) {
   // turn_context in the same file (measured), so a streaming model -> record
   // join mis-attributes or throws.
   const ctx = new Map();                       // turn_id -> {model, effort}
+  const declaredModels = new Set();            // display-only; never a per-call pricing fallback
   let recs = [];
   try {
     for (const line of rolloutLines(file)) {
@@ -194,6 +195,9 @@ function readRollout(file) {
       if (x.type === "turn_context") {
         if (p.turn_id != null && !ctx.has(p.turn_id))
           ctx.set(p.turn_id, { model: p.model ?? null, effort: p.effort ?? null });
+      } else if (x.type === "event_msg" && p.type === "thread_settings_applied") {
+        const model = p.thread_settings?.model;
+        if (typeof model === "string" && model.trim()) declaredModels.add(model);
       } else if (x.type === "token_usage_record" && p.usage) {
         recs.push({ ts: x.timestamp, id: p.response_id, turnId: p.turn_id ?? null,
                     rootTurnId: p.root_turn_id ?? null, u: p.usage, tot: p.thread_token_usage });
@@ -313,6 +317,7 @@ function readRollout(file) {
   return {
     tokens, apiCalls: ids.size,
     models: models.sort((a, b) => (byModel.get(b) || 0) - (byModel.get(a) || 0)),
+    declaredModels: [...declaredModels],
     efforts, costOwn, costParts, unknownModels: [...unknown], pricing: [...pricing.values()],
     costConfidence: priced === 0 ? "n/a" : unpriced || partial ? "partial" : "computed",
     turnCost, calls,
@@ -519,12 +524,11 @@ function synth(t, roll, createdMs, updatedMs, hist) {
   if (t.name != null) identity.customTitle = t.name;
 
   return {
-    // Ranked by the tokens each model actually burned, never threads.model --
-    // that is one last-value column and it over-prices a two-model thread by
-    // ~47%. On the degraded path there is nothing else, and cost is n/a with
-    // zero tokens there, so it cannot mislead a dollar figure; the column is
-    // nullable and [null] would crash shortModel(), hence the guard.
-    model: roll ? roll.models : (t.model == null ? [] : [t.model]),
+    // Turn contexts identify actual models. If none were saved, retain the
+    // declared model for display, with its source; never use metadata to price
+    // unattributed calls (a thread's last model cannot prove earlier usage).
+    model: roll?.models.length ? roll.models : roll?.declaredModels?.length ? roll.declaredModels : (t.model ? [t.model] : []),
+    modelSource: roll?.models.length ? "turn_context" : roll?.declaredModels?.length ? "thread_settings" : t.model ? "thread_metadata" : "unrecorded",
     // Never threads.reasoning_effort: one last-value column cannot carry a
     // per-turn set, and it is NULL on most rows besides.
     effort: roll ? roll.efforts : [],

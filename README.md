@@ -96,10 +96,17 @@ Implemented:
   process, the first time the store is opened. `NODE_NO_WARNINGS=1` silences it
   for `--json` pipelines. On a host that never ran Codex, nothing is read, no
   warning is printed, and nothing about Claude sessions changes.
-  Note the index's default filters hide cheap sessions — `min $` ships ticked at
-  `0.5` over a 30-day window — so a Codex session on a model with no price row
-  (cost `0`, `n/a`) does not appear on `/` until you untick it. Pre-existing and
-  provider-neutral, but worth knowing before concluding a session is missing.
+  `codex-auto-review` is Codex's internal Guardian model for automatic
+  permission checks, as described in [Codex's model catalogue](https://github.com/openai/codex/blob/main/codex-rs/models-manager/models.json).
+  Atlas labels it as internal, retains its recorded id, and does not substitute
+  the parent agent's model or invent a price when the catalogues have none.
+  If turn contexts are absent, Atlas preserves models declared in thread
+  settings or SQLite metadata for display (`modelSource` records that origin).
+  Those declarations never price calls lacking their own turn model. If no
+  model was saved, the UI says **model not recorded**; the model that authored
+  an instruction template is not evidence of which model executed a session.
+  The default minimum-cost filter keeps unavailable and partial estimates
+  visible; it only hides fully priced cheap sessions.
 
 Planned (design notes, not yet implemented):
 

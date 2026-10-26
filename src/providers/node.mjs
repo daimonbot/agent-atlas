@@ -75,6 +75,7 @@ export function finish(agent, description, agentId, via, st, children, extra, tu
   const total = +(own + childUsd).toFixed(4);
   return {
     agent, description, agentId, provider: extra.provider, via,
+    modelSource: st?.modelSource ?? (st?.model?.length ? "transcript" : "unrecorded"),
     ...(st ? { model: st.model, effort: st.effort, start: st.start, end: st.end,
                durationS: st.durationS, apiCalls: st.apiCalls, userMsgs: st.userMsgs,
                tokens: st.tokens, costParts: st.costParts,
