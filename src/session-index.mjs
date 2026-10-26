@@ -22,7 +22,7 @@ export function toSessionRow(session, tree, now = Date.now()) {
     start: tree.start, durationS: tree.durationS, live: now - session.mtimeMs < LIVE_MS,
     agents: countAgents(tree), apiCalls: tree.apiCalls, humanMsgs: tree.humanMsgs,
     costPerHumanMsg: tree.costPerHumanMsg, callsPerHumanMsg: tree.callsPerHumanMsg,
-    agentMs: agentMs(tree), byAgent: perAgent(tree), model, workspace: w, version: tree.version,
+    agentMs: agentMs(tree), byAgent: perAgent(tree), model, modelSource: tree.modelSource, workspace: w, version: tree.version,
     tokens: totals.t, tokenCost: totals.d, cost: tree.cost.total,
     costConfidence: tree.cost.confidence, unpricedModels: [...unpricedModels(tree)],
   };
